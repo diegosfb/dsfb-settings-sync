@@ -1,0 +1,168 @@
+{
+  "name": "solobois-settings-sync",
+  "displayName": "Soloboi's Settings Sync",
+  "description": "Sync VS Code settings, keybindings, and extensions via GitHub Gist",
+  "version": "1.0.6",
+  "publisher": "soloboi",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/solobois-settings-sync"
+  },
+  "keywords": [
+    "settings",
+    "sync",
+    "gist",
+    "soloboi",
+    "backup"
+  ],
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "soloboisSettingsSync.login",
+        "title": "Soloboi's Settings Sync: Login to GitHub"
+      },
+      {
+        "command": "soloboisSettingsSync.logout",
+        "title": "Soloboi's Settings Sync: Logout from GitHub"
+      },
+      {
+        "command": "soloboisSettingsSync.syncNow",
+        "title": "Soloboi's Settings Sync: Sync Now (Upload & Download)"
+      },
+      {
+        "command": "soloboisSettingsSync.uploadNow",
+        "title": "Soloboi's Settings Sync: Upload Settings"
+      },
+      {
+        "command": "soloboisSettingsSync.downloadNow",
+        "title": "Soloboi's Settings Sync: Download Settings"
+      },
+      {
+        "command": "soloboisSettingsSync.showHistory",
+        "title": "Soloboi's Settings Sync: Show Gist History"
+      },
+      {
+        "command": "soloboisSettingsSync.setGistId",
+        "title": "Soloboi's Settings Sync: Set Gist ID"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "soloboisSettingsSync.syncNow",
+        "key": "shift+alt+s",
+        "mac": "shift+cmd+s"
+      },
+      {
+        "command": "soloboisSettingsSync.uploadNow",
+        "key": "shift+alt+u",
+        "mac": "shift+cmd+u"
+      },
+      {
+        "command": "soloboisSettingsSync.downloadNow",
+        "key": "shift+alt+d",
+        "mac": "shift+cmd+d"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "soloboi-sync-explorer",
+          "title": "Soloboi's Settings Sync",
+          "icon": "$(sync)"
+        }
+      ]
+    },
+    "views": {
+      "soloboi-sync-explorer": [
+        {
+          "id": "soloboisSettingsSync.treeView",
+          "name": "Actions",
+          "icon": "$(sync)"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Soloboi's Settings Sync",
+      "properties": {
+        "soloboisSettingsSync.gistId": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub Gist ID for settings sync. Leave empty to auto-create on first upload."
+        },
+        "soloboisSettingsSync.autoSyncOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically download and apply settings from Gist on startup."
+        },
+        "soloboisSettingsSync.autoUploadOnChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically upload settings to Gist when local files change."
+        },
+        "soloboisSettingsSync.autoUploadDelay": {
+          "type": "number",
+          "default": 5000,
+          "description": "Delay in milliseconds before auto-uploading after a change is detected."
+        },
+        "soloboisSettingsSync.ignoredSettings": {
+          "type": "array",
+          "default": [],
+          "description": "Settings keys to ignore during sync (glob patterns supported). Example: [\"terminal.integrated.profiles.*\"]",
+          "items": {
+            "type": "string"
+          }
+        },
+        "soloboisSettingsSync.removeExtensions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically uninstall local extensions that are not in the remote list."
+        },
+        "soloboisSettingsSync.publicGist": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create new sync Gists as Public (visible to anyone). Defaults to Private for security."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^7.11.0",
+    "@typescript-eslint/parser": "^7.11.0",
+    "@vscode/test-cli": "^0.0.9",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^3.7.1",
+    "eslint": "^8.57.0",
+    "glob": "^10.3.15",
+    "mocha": "^10.4.0",
+    "ovsx": "^0.9.1",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
