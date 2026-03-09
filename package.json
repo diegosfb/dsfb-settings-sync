@@ -1,26 +1,31 @@
 {
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
-  "description": "Sync VS Code settings, keybindings, and extensions via GitHub Gist",
-  "version": "1.0.7",
+  "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
+  "version": "1.0.8",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/example/solobois-settings-sync"
+    "url": "https://github.com/mingjae1/antigravity-sync"
   },
+  "homepage": "https://github.com/mingjae1/antigravity-sync#readme",
+  "bugs": {
+    "url": "https://github.com/mingjae1/antigravity-sync/issues"
+  },
+  "gitlab": "https://gitlab.com/soloboi/solobois-settings-sync",
   "keywords": [
-    "settings",
-    "sync",
+    "antigravity",
+    "settings-sync",
+    "backup",
     "gist",
-    "soloboi",
-    "backup"
+    "personalization",
+    "sync"
   ],
   "categories": [
-    "Other",
-    "Machine Learning"
+    "Other"
   ],
   "activationEvents": [
     "onStartupFinished"
