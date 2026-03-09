@@ -9,6 +9,7 @@ webpack.config.js
 vsc-extension-quickstart.md
 *.bat
 *.js
+*.env
 !dist/**
 !package.json
 !README.md

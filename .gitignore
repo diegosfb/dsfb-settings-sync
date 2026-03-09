@@ -11,7 +11,7 @@ dist/
 fetch_gist.js
 
 # Environment / Secret files
-.env
+*.env
 .env.local
 .env.*.local
 
