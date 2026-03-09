@@ -47,11 +47,11 @@
       },
       {
         "command": "soloboisSettingsSync.uploadNow",
-        "title": "Soloboi's Settings Sync: Upload Settings"
+        "title": "Soloboi's Settings Sync: Upload Settings to Gist"
       },
       {
         "command": "soloboisSettingsSync.downloadNow",
-        "title": "Soloboi's Settings Sync: Download Settings"
+        "title": "Soloboi's Settings Sync: Download Settings from Gist"
       },
       {
         "command": "soloboisSettingsSync.showHistory",
@@ -68,6 +68,14 @@
       {
         "command": "soloboisSettingsSync.switchProfile",
         "title": "Soloboi's Settings Sync: Switch Profile"
+      },
+      {
+        "command": "soloboisSettingsSync.configureIgnoredExtensions",
+        "title": "Soloboi's Settings Sync: Manage Ignored Extensions"
+      },
+      {
+        "command": "soloboisSettingsSync.configureIgnoredSettings",
+        "title": "Soloboi's Settings Sync: Manage Ignored Settings"
       }
     ],
     "keybindings": [

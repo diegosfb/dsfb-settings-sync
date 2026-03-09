@@ -99,6 +99,26 @@ export class SettingsManager {
     }
 
     /**
+     * Read local settings.json content without any processing.
+     */
+    readLocalSettingsRaw(): string | null {
+        const filePath = this.getSettingsPath();
+        if (!filePath || !fs.existsSync(filePath)) {
+            return null;
+        }
+        return fs.readFileSync(filePath, 'utf8');
+    }
+
+    /**
+     * Parse and return the local settings as an object.
+     */
+    getLocalSettingsObject(): any {
+        const content = this.readLocalSettingsRaw();
+        if (!content) return {};
+        return this.parseJsonc(content) || {};
+    }
+
+    /**
      * Get the extensions directory for the current editor.
      * Checks ~/.antigravity/extensions/ first, then falls back to ~/.vscode/extensions/
      */

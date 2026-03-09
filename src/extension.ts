@@ -43,7 +43,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(outputChannel);
 
     // Register Tree View
-    const treeProvider = new SoloboiSyncTreeProvider();
+    const treeProvider = new SoloboiSyncTreeProvider(authManager, gistService);
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider('soloboisSettingsSync.treeView', treeProvider)
     );
@@ -114,6 +114,119 @@ export async function activate(context: vscode.ExtensionContext) {
                 } else {
                     vscode.window.showInformationMessage('Soloboi\'s Settings Sync: Gist ID가 초기화되었습니다.');
                 }
+                treeProvider.refresh();
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.selectGist', async (gistId: string) => {
+            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID가 설정되었습니다. (${gistId.substring(0, 8)}...)`);
+            treeProvider.refresh();
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.configureIgnoredExtensions', async () => {
+            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const currentlyIgnored = new Set(config.get<string[]>('ignoredExtensions', []));
+            
+            const extensions = vscode.extensions.all
+                .filter(ext => !ext.packageJSON?.isBuiltin && ext.id !== 'soloboi.solobois-settings-sync')
+                .map(ext => ({
+                    label: ext.packageJSON?.displayName || ext.packageJSON?.name || ext.id,
+                    description: ext.id,
+                    picked: currentlyIgnored.has(ext.id)
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label));
+
+            const selected = await vscode.window.showQuickPick(extensions, {
+                canPickMany: true,
+                placeHolder: '동기화에서 제외할 익스텐션을 선택하세요.',
+                title: '익스텐션 동기화 제외 설정'
+            });
+
+            if (selected !== undefined) {
+                const newIgnored = selected.map(item => item.description);
+                await config.update('ignoredExtensions', newIgnored, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 제외할 익스텐션 목록이 업데이트되었습니다.');
+                treeProvider.refresh();
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.configureIgnoredSettings', async () => {
+            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const currentlyIgnored = new Set(config.get<string[]>('ignoredSettings', []));
+            
+            const localObj = settingsManager.getLocalSettingsObject();
+            const keys = new Set([...Object.keys(localObj), ...currentlyIgnored]);
+            
+            const sortedKeys = Array.from(keys).sort();
+            const items: (vscode.QuickPickItem & { isPattern?: boolean })[] = [
+                {
+                    label: '$(add) 직접 패턴 입력...',
+                    description: '직접 제외할 설정 키 또는 와일드카드 패턴(* )을 입력합니다.',
+                    alwaysShow: true,
+                    isPattern: true
+                },
+                {
+                    label: '현재 설정 및 제외 목록',
+                    kind: vscode.QuickPickItemKind.Separator
+                }
+            ];
+
+            let lastPrefix = '';
+            for (const key of sortedKeys) {
+                const prefix = key.split('.')[0] || 'other';
+                if (prefix !== lastPrefix) {
+                    items.push({
+                        label: prefix,
+                        kind: vscode.QuickPickItemKind.Separator
+                    });
+                    lastPrefix = prefix;
+                }
+                items.push({
+                    label: key,
+                    picked: currentlyIgnored.has(key)
+                });
+            }
+
+            const selected = await vscode.window.showQuickPick(items, {
+                canPickMany: true,
+                placeHolder: '동기화에서 제외할 설정 키를 선택하거나 패턴을 추가하세요.',
+                title: '설정 동기화 제외 관리'
+            });
+
+            if (selected !== undefined) {
+                const finalIgnored = new Set<string>();
+                let needsManualInput = false;
+
+                for (const item of selected) {
+                    if (item.isPattern) {
+                        needsManualInput = true;
+                    } else {
+                        finalIgnored.add(item.label);
+                    }
+                }
+
+                if (needsManualInput) {
+                    const customPattern = await vscode.window.showInputBox({
+                        title: '제외 패턴 추가',
+                        prompt: '제외할 설정 키 또는 패턴을 입력하세요 (예: terminal.integrated.*)',
+                        placeHolder: 'e.g. editor.fontSize'
+                    });
+                    if (customPattern) {
+                        finalIgnored.add(customPattern);
+                    }
+                }
+
+                await config.update('ignoredSettings', Array.from(finalIgnored), vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage('Soloboi\'s Settings Sync: 제외할 설정 목록이 업데이트되었습니다.');
+                treeProvider.refresh();
             }
         })
     );
