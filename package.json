@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync VS Code settings, keybindings, and extensions via GitHub Gist",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
@@ -55,6 +55,14 @@
       {
         "command": "soloboisSettingsSync.setGistId",
         "title": "Soloboi's Settings Sync: Set Gist ID"
+      },
+      {
+        "command": "soloboisSettingsSync.showDiff",
+        "title": "Soloboi's Settings Sync: Show Diff"
+      },
+      {
+        "command": "soloboisSettingsSync.switchProfile",
+        "title": "Soloboi's Settings Sync: Switch Profile"
       }
     ],
     "keybindings": [
@@ -132,6 +140,44 @@
           "type": "boolean",
           "default": false,
           "description": "Create new sync Gists as Public (visible to anyone). Defaults to Private for security."
+        },
+        "soloboisSettingsSync.syncSettings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sync VS Code settings (settings.json)."
+        },
+        "soloboisSettingsSync.syncExtensions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sync installed extensions list."
+        },
+        "soloboisSettingsSync.syncKeybindings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sync keyboard shortcuts (keybindings.json)."
+        },
+        "soloboisSettingsSync.syncSnippets": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sync user snippets."
+        },
+        "soloboisSettingsSync.ignoredExtensions": {
+          "type": "array",
+          "default": [],
+          "description": "List of extension IDs to ignore during sync. Example: [\"ms-vscode.cpptools\"]",
+          "items": {
+            "type": "string"
+          }
+        },
+        "soloboisSettingsSync.profiles": {
+          "type": "object",
+          "default": {},
+          "description": "Stored sync profiles (Gist IDs mapped to names)."
+        },
+        "soloboisSettingsSync.currentProfile": {
+          "type": "string",
+          "default": "Default",
+          "description": "The name of the currently active sync profile."
         }
       }
     }

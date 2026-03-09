@@ -1,0 +1,16 @@
+.vscode/**
+.git/**
+.gitignore
+.vscodeignore
+node_modules/**
+src/**
+tsconfig.json
+webpack.config.js
+vsc-extension-quickstart.md
+*.bat
+*.js
+!dist/**
+!package.json
+!README.md
+!LICENSE.md
+*.vsix
