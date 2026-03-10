@@ -81,6 +81,13 @@ export class AuthManager {
   }
 
   /**
+   * Get the current session.
+   */
+  getSession(): vscode.AuthenticationSession | null {
+    return this.session;
+  }
+
+  /**
    * Get the account label (username).
    */
   getAccountLabel(): string | null {

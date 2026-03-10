@@ -1,26 +1,31 @@
 {
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
-  "description": "Sync VS Code settings, keybindings, and extensions via GitHub Gist",
-  "version": "1.0.7",
+  "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
+  "version": "1.0.12",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/example/solobois-settings-sync"
+    "url": "https://github.com/mingjae1/antigravity-sync"
   },
+  "homepage": "https://github.com/mingjae1/antigravity-sync#readme",
+  "bugs": {
+    "url": "https://github.com/mingjae1/antigravity-sync/issues"
+  },
+  "gitlab": "https://gitlab.com/soloboi/solobois-settings-sync",
   "keywords": [
-    "settings",
-    "sync",
+    "antigravity",
+    "settings-sync",
+    "backup",
     "gist",
-    "soloboi",
-    "backup"
+    "personalization",
+    "sync"
   ],
   "categories": [
-    "Other",
-    "Machine Learning"
+    "Other"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -42,11 +47,11 @@
       },
       {
         "command": "soloboisSettingsSync.uploadNow",
-        "title": "Soloboi's Settings Sync: Upload Settings"
+        "title": "Soloboi's Settings Sync: Upload Settings to Gist"
       },
       {
         "command": "soloboisSettingsSync.downloadNow",
-        "title": "Soloboi's Settings Sync: Download Settings"
+        "title": "Soloboi's Settings Sync: Download Settings from Gist"
       },
       {
         "command": "soloboisSettingsSync.showHistory",
@@ -63,6 +68,14 @@
       {
         "command": "soloboisSettingsSync.switchProfile",
         "title": "Soloboi's Settings Sync: Switch Profile"
+      },
+      {
+        "command": "soloboisSettingsSync.configureIgnoredExtensions",
+        "title": "Soloboi's Settings Sync: Manage Ignored Extensions"
+      },
+      {
+        "command": "soloboisSettingsSync.configureIgnoredSettings",
+        "title": "Soloboi's Settings Sync: Manage Ignored Settings"
       }
     ],
     "keybindings": [
@@ -172,7 +185,7 @@
         "soloboisSettingsSync.profiles": {
           "type": "object",
           "default": {},
-          "description": "Stored sync profiles (Gist IDs mapped to names)."
+          "description": "Stored sync profiles by name. Each profile stores gistId, ignoredSettings, and ignoredExtensions."
         },
         "soloboisSettingsSync.currentProfile": {
           "type": "string",
