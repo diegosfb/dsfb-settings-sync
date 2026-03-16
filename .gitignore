@@ -4,6 +4,8 @@ node_modules/
 # Build output
 out/
 dist/
+plan/
+.vscode/
 *.vsix
 
 # Scripts (Local development)
@@ -43,3 +45,5 @@ npm-debug.log*
 .history/
 *.docx
 *.txt
+.gitignore
+.vscodeignore
