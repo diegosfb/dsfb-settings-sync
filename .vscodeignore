@@ -18,3 +18,7 @@ vsc-extension-quickstart.md
 *.docx
 *.txt
 plan/**
+.claude/**
+.playwright-mcp/**
+marketplace-screenshot.png
+screenshots/**
