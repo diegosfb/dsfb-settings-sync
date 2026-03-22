@@ -47,3 +47,5 @@ npm-debug.log*
 *.txt
 .gitignore
 .vscodeignore
+.claude/
+marketplace-screenshot.png

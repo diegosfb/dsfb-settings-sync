@@ -1,5 +1,7 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as cp from 'child_process';
 import * as os from 'os';
 import { AuthManager } from './auth';
 import { GistService } from './gistService';
@@ -7,10 +9,14 @@ import { SettingsManager } from './settingsManager';
 import { SoloboiSyncTreeProvider } from './treeProvider';
 import { detectPlatform, Platform } from './platformDetector';
 import { checkMarketplaceForPlatform, ExtensionAvailability } from './marketplaceChecker';
+import { registerPrototypeCommands } from './prototypeCommands';
 
 const GIST_DESCRIPTION_PREFIX = "Soloboi's Settings Sync - ";
 const GIST_DEFAULT_DESCRIPTION = "Soloboi's Settings Sync - VS Code Settings"; // Used for initial creation
 const LAST_SYNC_KEY = 'soloboisSettingsSync.lastSyncTimestamp';
+const LOCAL_STATE_TIMESTAMP_KEY = 'soloboisSettingsSync.localStateTimestamp';
+const PENDING_UPLOAD_KEY = 'soloboisSettingsSync.pendingUpload';
+const INTENTIONALLY_REMOVED_KEY = 'soloboisSettingsSync.intentionallyRemovedExtensions';
 const DEFAULT_PROFILE_NAME = 'Default';
 
 let authManager: AuthManager;
@@ -20,14 +26,24 @@ let fileWatcher: vscode.FileSystemWatcher | undefined;
 let uploadTimer: NodeJS.Timeout | undefined;
 let isUploading = false;
 let isDownloading = false;
+let isApplyingRemoteChanges = false;
+let autoUploadSuspendedUntil = 0;
 let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let lastSyncTime: string | null = null;
 let currentPlatform: Platform = 'unknown';
 
+const AUTO_UPLOAD_SUPPRESSION_BUFFER_MS = 1500;
+const EXTENSION_CHANGE_UPLOAD_DELAY_MS = 750;
+
 type OmissionSummary = {
     skippedSettingKeys: string[];
     skippedAntigravityFiles: string[];
+};
+
+type PendingUploadState = {
+    timestamp: string;
+    reason: string;
 };
 
 type SyncProfile = {
@@ -66,6 +82,50 @@ function normalizeExtensionIds(ids: string[]): string[] {
     }
 
     return normalized;
+}
+
+async function installExtensionViaCLI(id: string): Promise<void> {
+    try {
+        await vscode.commands.executeCommand('workbench.extensions.installExtension', id);
+        return;
+    } catch {
+        // Fall back to the CLI when the built-in install command is unavailable or fails.
+    }
+
+    const appRoot = vscode.env.appRoot;
+    let cliPath: string;
+
+    if (process.platform === 'win32') {
+        cliPath = path.join(appRoot, '..', 'bin', 'code.cmd');
+    } else if (process.platform === 'darwin') {
+        cliPath = path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'code');
+    } else {
+        cliPath = path.join(appRoot, '..', 'bin', 'code');
+    }
+
+    if (!fs.existsSync(cliPath)) {
+        cliPath = 'code';
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        cp.execFile(cliPath, ['--install-extension', id], (err, _stdout, stderr) => {
+            if (err) {
+                const stderrText = (stderr || '').trim();
+                const errorText = `${err.message || ''}\n${stderrText}`.toLowerCase();
+
+                if (errorText.includes('bad option') || errorText.includes('unknown option')) {
+                    reject(new Error(
+                        `Extension CLI does not support --install-extension (${cliPath})${stderrText ? `: ${stderrText}` : ''}`
+                    ));
+                    return;
+                }
+
+                reject(err);
+                return;
+            }
+            resolve();
+        });
+    });
 }
 
 function getCurrentProfileName(config: vscode.WorkspaceConfiguration): string {
@@ -214,6 +274,176 @@ function getSyncOptions(config?: vscode.WorkspaceConfiguration): SyncOptions {
     };
 }
 
+function clearPendingUpload(): void {
+    if (uploadTimer) {
+        clearTimeout(uploadTimer);
+        uploadTimer = undefined;
+    }
+}
+
+function parseTimestamp(timestamp: string | null | undefined): number | null {
+    if (!timestamp) {
+        return null;
+    }
+
+    const parsed = Date.parse(timestamp);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getPendingUploadState(context: vscode.ExtensionContext): PendingUploadState | null {
+    const pending = context.globalState.get<PendingUploadState | null>(PENDING_UPLOAD_KEY, null);
+    if (!pending || typeof pending.timestamp !== 'string') {
+        return null;
+    }
+
+    const timestamp = parseTimestamp(pending.timestamp);
+    if (timestamp === null) {
+        return null;
+    }
+
+    return {
+        timestamp: new Date(timestamp).toISOString(),
+        reason: typeof pending.reason === 'string' && pending.reason.trim()
+            ? pending.reason.trim()
+            : 'local changes'
+    };
+}
+
+async function markLocalStateChanged(
+    context: vscode.ExtensionContext,
+    reason: string
+): Promise<PendingUploadState> {
+    const pending: PendingUploadState = {
+        timestamp: new Date().toISOString(),
+        reason
+    };
+
+    await context.globalState.update(LOCAL_STATE_TIMESTAMP_KEY, pending.timestamp);
+    await context.globalState.update(PENDING_UPLOAD_KEY, pending);
+    return pending;
+}
+
+async function markStateSynchronized(
+    context: vscode.ExtensionContext,
+    timestamp: string
+): Promise<void> {
+    await context.globalState.update(LAST_SYNC_KEY, timestamp);
+    await context.globalState.update(LOCAL_STATE_TIMESTAMP_KEY, timestamp);
+    await context.globalState.update(PENDING_UPLOAD_KEY, undefined);
+    lastSyncTime = timestamp;
+}
+
+function getManagedExtensionsSnapshot(): string {
+    return settingsManager.readInstalledExtensions();
+}
+
+function parseExtensionIds(content: string | null | undefined): Set<string> {
+    return new Set(
+        normalizeExtensionIds(
+            parseExtensionList(content || '')
+                .map(entry => entry.id)
+        )
+    );
+}
+
+async function pruneIntentionallyRemovedExtensions(
+    context: vscode.ExtensionContext,
+    uploadedExtensionsContent: string | null | undefined
+): Promise<void> {
+    const intentionallyRemoved = normalizeExtensionIds(
+        context.globalState.get<string[]>(INTENTIONALLY_REMOVED_KEY, [])
+    );
+    if (intentionallyRemoved.length === 0) {
+        return;
+    }
+
+    const uploadedIds = parseExtensionIds(uploadedExtensionsContent);
+    const remaining = intentionallyRemoved.filter(id => uploadedIds.has(id));
+    await context.globalState.update(INTENTIONALLY_REMOVED_KEY, remaining);
+}
+
+function getAutoUploadSuppressionWindow(config?: vscode.WorkspaceConfiguration): number {
+    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const delay = Math.max(cfg.get<number>('autoUploadDelay', 5000), 0);
+    return delay + AUTO_UPLOAD_SUPPRESSION_BUFFER_MS;
+}
+
+function suspendAutoUpload(durationMs: number): void {
+    autoUploadSuspendedUntil = Math.max(
+        autoUploadSuspendedUntil,
+        Date.now() + Math.max(durationMs, 0)
+    );
+    clearPendingUpload();
+}
+
+function isAutoUploadSuspended(): boolean {
+    return isDownloading || isApplyingRemoteChanges || Date.now() < autoUploadSuspendedUntil;
+}
+
+function scheduleAutoUpload(
+    context: vscode.ExtensionContext,
+    delayMs: number
+): void {
+    if (isAutoUploadSuspended()) {
+        return;
+    }
+
+    clearPendingUpload();
+    uploadTimer = setTimeout(async () => {
+        uploadTimer = undefined;
+        if (isAutoUploadSuspended()) {
+            return;
+        }
+
+        const session = await authManager.getSessionSilent();
+        if (session) {
+            await uploadSettings(context, true);
+        }
+    }, Math.max(delayMs, 0));
+}
+
+async function shouldDownloadRemoteOnStartup(
+    context: vscode.ExtensionContext
+): Promise<boolean> {
+    const pending = getPendingUploadState(context);
+    if (!pending) {
+        return true;
+    }
+
+    const token = await authManager.getToken();
+    if (!token) {
+        return false;
+    }
+
+    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const gistId = config.get<string>('gistId');
+    if (!gistId) {
+        return false;
+    }
+
+    const gistData = await gistService.getGist(gistId, token);
+    const remoteTimestamp = parseTimestamp(gistData?.updated_at);
+    const pendingTimestamp = parseTimestamp(pending.timestamp);
+
+    if (pendingTimestamp !== null && remoteTimestamp !== null && remoteTimestamp >= pendingTimestamp) {
+        await context.globalState.update(PENDING_UPLOAD_KEY, undefined);
+        return true;
+    }
+
+    outputChannel.appendLine(
+        `Startup sync skipped remote download because local ${pending.reason} at ${pending.timestamp} is newer than the Gist.`
+    );
+
+    const uploaded = await uploadSettings(context, true);
+    if (!uploaded) {
+        outputChannel.appendLine(
+            'Pending local changes could not be uploaded during startup. Remote download remains skipped to avoid overwriting local state.'
+        );
+    }
+
+    return false;
+}
+
 function parseJsonc(content: string): any | null {
     try {
         let isInsideString = false;
@@ -338,7 +568,7 @@ async function filterExtensionsByMarketplace(
     };
 }
 
-// ??? Activation ??????????????????????????????????????????????????????
+// ?????? Activation ????????????????????????????????????????????????????????????????????????????????????????????????????????????
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Soloboi\'s Settings Sync is now active.');
@@ -350,6 +580,7 @@ export async function activate(context: vscode.ExtensionContext) {
     currentPlatform = detectPlatform();
     console.log(`Soloboi's Settings Sync: detected platform = ${currentPlatform} (appName: ${vscode.env.appName})`);
     await initializeProfiles();
+    lastSyncTime = context.globalState.get<string>(LAST_SYNC_KEY) || null;
 
     // Initialize UI
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -370,9 +601,78 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Keep ignoredExtensions clean when extensions are removed.
     await cleanupIgnoredExtensions();
+    let extensionSnapshot = getManagedExtensionsSnapshot();
     context.subscriptions.push(
-        vscode.extensions.onDidChange(() => {
-            void cleanupIgnoredExtensions();
+        vscode.extensions.onDidChange(async () => {
+            const nextSnapshot = getManagedExtensionsSnapshot();
+            const extensionsChanged = nextSnapshot !== extensionSnapshot;
+
+            if (extensionsChanged) {
+                const prevIds = parseExtensionIds(extensionSnapshot);
+                const nextIds = parseExtensionIds(nextSnapshot);
+                const removed = [...prevIds].filter(id => !nextIds.has(id));
+
+                if (removed.length > 0) {
+                    const existing = normalizeExtensionIds(
+                        context.globalState.get<string[]>(INTENTIONALLY_REMOVED_KEY, [])
+                    );
+                    const updated = normalizeExtensionIds([...existing, ...removed]);
+                    await context.globalState.update(INTENTIONALLY_REMOVED_KEY, updated);
+
+                    // Add contributed setting keys from removed extensions to ignoredSettings.
+                    for (const removedId of removed) {
+                        const ext = vscode.extensions.getExtension(removedId);
+                        if (!ext) {
+                            continue;
+                        }
+
+                        const contributes = ext.packageJSON?.contributes?.configuration;
+                        if (!contributes) {
+                            continue;
+                        }
+
+                        const configs = Array.isArray(contributes) ? contributes : [contributes];
+                        const keys: string[] = configs.flatMap(
+                            (c: any) => Object.keys(c?.properties ?? {})
+                        );
+
+                        if (keys.length === 0) {
+                            continue;
+                        }
+
+                        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                        const existingIgnored = config.get<string[]>('ignoredSettings', []);
+                        const toAdd = keys.filter(key => !existingIgnored.includes(key));
+                        if (toAdd.length === 0) {
+                            continue;
+                        }
+
+                        await config.update(
+                            'ignoredSettings',
+                            [...existingIgnored, ...toAdd],
+                            vscode.ConfigurationTarget.Global
+                        );
+
+                        outputChannel.appendLine(
+                            `[Auto-ignore] ${removedId} removal detected -> added ${toAdd.length} setting(s) to ignoredSettings: ${toAdd.slice(0, 3).join(', ')}${toAdd.length > 3 ? ' ...' : ''}`
+                        );
+                    }
+                }
+            }
+
+            extensionSnapshot = nextSnapshot;
+
+            await cleanupIgnoredExtensions();
+
+            if (!extensionsChanged || isAutoUploadSuspended()) {
+                return;
+            }
+
+            await markLocalStateChanged(context, 'extension list changed');
+            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            if (config.get<boolean>('autoUploadOnChange', true)) {
+                scheduleAutoUpload(context, EXTENSION_CHANGE_UPLOAD_DELAY_MS);
+            }
         })
     );
 
@@ -401,7 +701,7 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // ?? Register Commands ????????????????????????????????????????????
+    // ???? Register Commands ????????????????????????????????????????????????????????????????????????????????????????
 
     context.subscriptions.push(
         vscode.commands.registerCommand('soloboisSettingsSync.login', async () => {
@@ -597,7 +897,14 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    // ?? Setup Wizard ?????????????????????????????????????????????????
+    registerPrototypeCommands(context, {
+        authManager,
+        gistService,
+        settingsManager,
+        outputChannel
+    });
+
+    // ???? Setup Wizard ??????????????????????????????????????????????????????????????????????????????????????????????????
 
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
     const gistId = config.get<string>('gistId');
@@ -618,24 +925,26 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     }
 
-    // ?? Startup Auto-Sync ????????????????????????????????????????????
+    // ???? Startup Auto-Sync ????????????????????????????????????????????????????????????????????????????????????????
 
     if (config.get<boolean>('autoSyncOnStartup')) {
         // Delay slightly to let VS Code finish initialising
         setTimeout(async () => {
             const session = await authManager.getSessionSilent();
             if (session) {
-                await downloadSettings(context, true);
+                if (await shouldDownloadRemoteOnStartup(context)) {
+                    await downloadSettings(context, true);
+                }
             }
         }, 3000);
     }
 
-    // ?? File Watchers (auto-upload on change) ????????????????????????
+    // ???? File Watchers (auto-upload on change) ????????????????????????????????????????????????
 
     setupFileWatchers(context);
 }
 
-// ??? Deactivation ????????????????????????????????????????????????????
+// ?????? Deactivation ????????????????????????????????????????????????????????????????????????????????????????????????????????
 
 export function deactivate(): Thenable<void> | undefined {
     // Upload current settings on exit
@@ -651,7 +960,9 @@ export function deactivate(): Thenable<void> | undefined {
                 const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
                 const gistId = config.get<string>('gistId');
                 if (gistId) {
-                    await gistService.updateGist(gistId, files, token);
+                    const currentGist = await gistService.getGist(gistId, token);
+                    const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
+                    await gistService.updateGist(gistId, files, token, undefined, filesToDelete);
                     console.log('Soloboi\'s Settings Sync: Uploaded settings on exit.');
                 }
             } catch (err) {
@@ -662,13 +973,13 @@ export function deactivate(): Thenable<void> | undefined {
     return undefined;
 }
 
-// ??? Upload Settings ?????????????????????????????????????????????????
+// ?????? Upload Settings ??????????????????????????????????????????????????????????????????????????????????????????????????
 
 async function uploadSettings(
     context: vscode.ExtensionContext,
     silent: boolean = false
-): Promise<void> {
-    if (isUploading) { return; }
+): Promise<boolean> {
+    if (isUploading || isDownloading || isApplyingRemoteChanges) { return false; }
     isUploading = true;
     updateStatusBar('uploading');
 
@@ -678,7 +989,7 @@ async function uploadSettings(
             if (!silent) {
                 vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
             }
-            return;
+            return false;
         }
 
         const files = buildGistFiles();
@@ -686,7 +997,7 @@ async function uploadSettings(
             if (!silent) {
                 vscode.window.showErrorMessage("Soloboi's Settings Sync: No sync files were generated.");
             }
-            return;
+            return false;
         }
 
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
@@ -694,23 +1005,28 @@ async function uploadSettings(
 
         if (!gistId) {
             const newId = await selectOrCreateGist(context, token, files, silent);
-            if (!newId) return;
+            if (!newId) {
+                return false;
+            }
             gistId = newId;
         }
 
         const dateStr = new Date().toLocaleString();
         const hostname = os.hostname();
         const description = `${GIST_DESCRIPTION_PREFIX}${hostname} (${dateStr})`;
+        const currentGist = await gistService.getGist(gistId, token);
+        const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
 
-        await gistService.updateGist(gistId, files, token, description);
+        await gistService.updateGist(gistId, files, token, description, filesToDelete);
+        await pruneIntentionallyRemovedExtensions(context, files['extensions.json']?.content);
         if (!silent) {
             vscode.window.showInformationMessage("Soloboi's Settings Sync: Uploaded to Gist.");
         }
 
         const now = new Date().toISOString();
-        context.globalState.update(LAST_SYNC_KEY, now);
-        lastSyncTime = now;
+        await markStateSynchronized(context, now);
         updateStatusBar('idle');
+        return true;
 
     } catch (err: any) {
         console.error("Soloboi's Settings Sync upload error:", err);
@@ -718,19 +1034,20 @@ async function uploadSettings(
             vscode.window.showErrorMessage(`Soloboi's Settings Sync: Upload failed: ${err.message}`);
         }
         updateStatusBar('error');
+        return false;
     } finally {
         isUploading = false;
     }
 }
 
-// ??? Download Settings ???????????????????????????????????????????????
+// ?????? Download Settings ??????????????????????????????????????????????????????????????????????????????????????????????
 
 async function downloadSettings(
     context: vscode.ExtensionContext,
     silent: boolean = false,
     forceOmissionNotice: boolean = false
 ): Promise<boolean> {
-    if (isDownloading) {
+    if (isDownloading || isUploading) {
         return false;
     }
     isDownloading = true;
@@ -747,6 +1064,7 @@ async function downloadSettings(
 
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
         let gistId = config.get<string>('gistId');
+        const suppressionWindow = getAutoUploadSuppressionWindow(config);
 
         if (!gistId) {
             if (silent) {
@@ -766,7 +1084,14 @@ async function downloadSettings(
             throw new Error('Invalid Gist data');
         }
 
-        await applyGistData(gistData, context, silent, forceOmissionNotice);
+        suspendAutoUpload(suppressionWindow);
+        isApplyingRemoteChanges = true;
+        try {
+            await applyGistData(gistData, context, silent, forceOmissionNotice);
+        } finally {
+            isApplyingRemoteChanges = false;
+            suspendAutoUpload(suppressionWindow);
+        }
         return true;
 
     } catch (err: any) {
@@ -781,7 +1106,7 @@ async function downloadSettings(
     }
 }
 
-// ??? Full Sync (Download then Upload) ????????????????????????????????
+// ?????? Full Sync (Download then Upload) ????????????????????????????????????????????????????????????????
 
 async function fullSync(context: vscode.ExtensionContext): Promise<void> {
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
@@ -802,7 +1127,7 @@ async function fullSync(context: vscode.ExtensionContext): Promise<void> {
     }
 }
 
-// ??? File Watchers ???????????????????????????????????????????????????
+// ?????? File Watchers ??????????????????????????????????????????????????????????????????????????????????????????????????????
 
 function setupFileWatchers(context: vscode.ExtensionContext): void {
     const settingsDir = settingsManager.getUserSettingsDir();
@@ -843,40 +1168,57 @@ function setupFileWatchers(context: vscode.ExtensionContext): void {
         antigravityWatcher = vscode.workspace.createFileSystemWatcher(antiPattern);
     }
 
-    const scheduleUpload = () => {
-        if (uploadTimer) {
-            clearTimeout(uploadTimer);
+    const scheduleUpload = async (reason: string) => {
+        if (isAutoUploadSuspended()) {
+            return;
         }
-        uploadTimer = setTimeout(async () => {
-            const session = await authManager.getSessionSilent();
-            if (session) {
-                await uploadSettings(context, true);
-            }
-        }, delay);
+
+        await markLocalStateChanged(context, reason);
+        scheduleAutoUpload(context, delay);
     };
 
-    fileWatcher.onDidChange(scheduleUpload);
-    fileWatcher.onDidCreate(scheduleUpload);
+    fileWatcher.onDidChange(() => {
+        void scheduleUpload('settings or keybindings changed');
+    });
+    fileWatcher.onDidCreate(() => {
+        void scheduleUpload('settings or keybindings created');
+    });
+    fileWatcher.onDidDelete(() => {
+        void scheduleUpload('settings or keybindings deleted');
+    });
 
     context.subscriptions.push(fileWatcher);
 
     if (snippetsWatcher) {
-        snippetsWatcher.onDidChange(scheduleUpload);
-        snippetsWatcher.onDidCreate(scheduleUpload);
-        snippetsWatcher.onDidDelete(scheduleUpload);
+        snippetsWatcher.onDidChange(() => {
+            void scheduleUpload('snippets changed');
+        });
+        snippetsWatcher.onDidCreate(() => {
+            void scheduleUpload('snippets created');
+        });
+        snippetsWatcher.onDidDelete(() => {
+            void scheduleUpload('snippets deleted');
+        });
         context.subscriptions.push(snippetsWatcher);
     }
 
     if (antigravityWatcher) {
-        antigravityWatcher.onDidChange(scheduleUpload);
-        antigravityWatcher.onDidCreate(scheduleUpload);
+        antigravityWatcher.onDidChange(() => {
+            void scheduleUpload('antigravity config changed');
+        });
+        antigravityWatcher.onDidCreate(() => {
+            void scheduleUpload('antigravity config created');
+        });
+        antigravityWatcher.onDidDelete(() => {
+            void scheduleUpload('antigravity config deleted');
+        });
         context.subscriptions.push(antigravityWatcher);
     }
 }
 
-// ??? Apply Gist Data ?????????????????????????????????????????????????
+// ?????? Apply Gist Data ??????????????????????????????????????????????????????????????????????????????????????????????????
 
-// ?? Diff Helpers ???????????????????????????????????????????????????
+// ???? Diff Helpers ??????????????????????????????????????????????????????????????????????????????????????????????????????
 
 function generateSettingsDiff(oldText: string | null, newText: string): string[] {
     const diffs: string[] = [];
@@ -947,7 +1289,7 @@ function generateExtensionsDiff(oldListStr: string | null, newListStr: string): 
     return diffs;
 }
 
-// ?? Apply Gist Data ??????????????????????????????????????????????
+// ???? Apply Gist Data ????????????????????????????????????????????????????????????????????????????????????????????
 
 type RemoteExtensionEntry = {
     id: string;
@@ -1019,6 +1361,9 @@ async function applyGistData(
         normalizeExtensionIds(
             vscode.workspace.getConfiguration('soloboisSettingsSync').get<string[]>('ignoredExtensions', [])
         )
+    );
+    const intentionallyRemovedIds = new Set(
+        normalizeExtensionIds(context.globalState.get<string[]>(INTENTIONALLY_REMOVED_KEY, []))
     );
 
     outputChannel.appendLine(`[Platform] ${currentPlatform}`);
@@ -1172,6 +1517,7 @@ async function applyGistData(
             const installedNames: string[] = [];
             const alreadyInstalledNames: string[] = [];
             const skippedIgnoredNames: string[] = [];
+            const skippedIntentionallyRemovedNames: string[] = [];
             const failedInstallNames: string[] = [];
 
             for (const entry of filteredEntries) {
@@ -1183,16 +1529,18 @@ async function applyGistData(
                     continue;
                 }
 
+                if (intentionallyRemovedIds.has(normalizedId)) {
+                    skippedIntentionallyRemovedNames.push(label);
+                    continue;
+                }
+
                 if (currentlyInstalled.has(normalizedId)) {
                     alreadyInstalledNames.push(label);
                     continue;
                 }
 
                 try {
-                    await vscode.commands.executeCommand(
-                        'workbench.extensions.installExtension',
-                        entry.id
-                    );
+                    await installExtensionViaCLI(entry.id);
                     installedCount++;
                     installedNames.push(label);
                     currentlyInstalled.add(normalizedId);
@@ -1232,6 +1580,9 @@ async function applyGistData(
             for (const name of skippedIgnoredNames) {
                 outputChannel.appendLine(`  ! skipped (ignored): ${name}`);
             }
+            for (const name of skippedIntentionallyRemovedNames) {
+                outputChannel.appendLine(`  ~ skipped (intentionally removed): ${name}`);
+            }
             for (const name of failedInstallNames) {
                 outputChannel.appendLine(`  ! install failed: ${name}`);
             }
@@ -1247,6 +1598,7 @@ async function applyGistData(
                 installedNames.length === 0 &&
                 alreadyInstalledNames.length === 0 &&
                 skippedIgnoredNames.length === 0 &&
+                skippedIntentionallyRemovedNames.length === 0 &&
                 failedInstallNames.length === 0 &&
                 uninstalledCount === 0
             ) {
@@ -1271,8 +1623,7 @@ async function applyGistData(
     }
 
     const now = new Date().toISOString();
-    context.globalState.update(LAST_SYNC_KEY, now);
-    lastSyncTime = now;
+    await markStateSynchronized(context, now);
     updateStatusBar('idle');
 
     const uniqueSkippedKeys = uniqueList(omissionSummary.skippedSettingKeys);
@@ -1280,9 +1631,9 @@ async function applyGistData(
     const hasOmissions = uniqueSkippedKeys.length > 0 || uniqueSkippedFiles.length > 0;
 
     if (hasOmissions) {
-        outputChannel.appendLine('[Cross-platform note] 일부 설정값이 플랫폼 차이로 누락되었습니다.');
-        outputChannel.appendLine('  - Antigravity는 VS Code 기반이지만, Antigravity 전용 설정값은 VS Code에서 직접 적용이 어려울 수 있습니다.');
-        outputChannel.appendLine('  - 일부 설정값은 사용자가 직접 수정해야 합니다.');
+        outputChannel.appendLine('[Cross-platform note] Some Antigravity-specific items were skipped.');
+        outputChannel.appendLine('  - VS Code cannot apply Antigravity-only settings and files directly.');
+        outputChannel.appendLine('  - Review the skipped items below if you need to recreate them manually.');
         if (uniqueSkippedKeys.length > 0) {
             outputChannel.appendLine(`  - skipped antigravity.* keys: ${uniqueSkippedKeys.length}`);
         }
@@ -1308,15 +1659,15 @@ async function applyGistData(
     if (hasOmissions && (!silent || forceOmissionNotice)) {
         const parts: string[] = [];
         if (uniqueSkippedKeys.length > 0) {
-            parts.push(`antigravity.* 설정 ${uniqueSkippedKeys.length}개`);
+            parts.push(`antigravity.* settings ${uniqueSkippedKeys.length}`);
         }
         if (uniqueSkippedFiles.length > 0) {
-            parts.push(`Antigravity 전용 파일 ${uniqueSkippedFiles.length}개`);
+            parts.push(`Antigravity-only files ${uniqueSkippedFiles.length}`);
         }
 
-        const summary = parts.length > 0 ? parts.join(', ') : '일부 설정';
+        const summary = parts.length > 0 ? parts.join(', ') : 'cross-platform settings';
         vscode.window.showWarningMessage(
-            `일부 설정값이 누락될 수 있습니다. (${summary}) 누락된 설정은 동기화 이후 사용자에게 안내됩니다.`,
+            `Some Antigravity-specific items were skipped during sync. (${summary}) See the report for details.`,
             'View report'
         ).then(selection => {
             if (selection === 'View report') {
@@ -1372,7 +1723,7 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
     }
 }
 
-// ??? Helpers ?????????????????????????????????????????????????????????
+// ?????? Helpers ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 
 async function switchProfile(treeProvider: SoloboiSyncTreeProvider): Promise<void> {
     const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
@@ -1592,6 +1943,31 @@ function buildGistFiles(): Record<string, { content: string }> | null {
     return files;
 }
 
+function isManagedGistFile(filename: string): boolean {
+    const normalized = filename.toLowerCase();
+    return normalized === 'settings.json'
+        || normalized === 'keybindings.json'
+        || normalized === 'extensions.json'
+        || normalized === 'snippets.json'
+        || normalized === 'mcp_config.json'
+        || normalized === 'browserallowlist.txt'
+        || /^antigravity.*\.json$/i.test(filename)
+        || /\.code-snippets$/i.test(filename);
+}
+
+function getManagedGistFilesToDelete(
+    currentFiles: Record<string, { filename: string; content: string }> | undefined,
+    nextFiles: Record<string, { content: string }>
+): string[] {
+    const nextFileNames = new Set(Object.keys(nextFiles).map(name => name.toLowerCase()));
+
+    return Object.values(currentFiles || {})
+        .map(file => file?.filename || '')
+        .filter(filename => !!filename)
+        .filter(filename => isManagedGistFile(filename))
+        .filter(filename => !nextFileNames.has(filename.toLowerCase()));
+}
+
 async function ensureLoggedIn(): Promise<void> {
     const session = await authManager.getSessionSilent();
     if (!session) {
@@ -1630,4 +2006,7 @@ function updateStatusBar(state: 'idle' | 'uploading' | 'downloading' | 'error' |
         }
     }
 }
+
+
+
 

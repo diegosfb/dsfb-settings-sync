@@ -2,7 +2,7 @@
   "name": "solobois-settings-sync",
   "displayName": "Soloboi's Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "publisher": "soloboi",
   "engines": {
     "vscode": "^1.90.0"
@@ -72,6 +72,16 @@
       {
         "command": "soloboisSettingsSync.configureIgnoredSettings",
         "title": "Soloboi's Settings Sync: Manage Ignored Settings"
+      },
+      {
+        "command": "soloboisSettingsSync.checkExtensionHealth",
+        "title": "익스텐션 마켓플레이스 헬스체크",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.runSettingsE2ETest",
+        "title": "설정 E2E 테스트 실행",
+        "category": "Soloboi Sync"
       }
     ],
     "keybindings": [
@@ -134,8 +144,14 @@
         },
         "soloboisSettingsSync.ignoredSettings": {
           "type": "array",
-          "default": [],
-          "description": "Settings keys to ignore during sync (glob patterns supported). Example: [\"terminal.integrated.profiles.*\"]",
+          "default": [
+            "*token*",
+            "*secret*",
+            "*password*",
+            "*apikey*",
+            "*api_key*"
+          ],
+          "description": "Settings keys to ignore during sync (glob patterns supported). Example: [\"terminal.integrated.profiles.*\"]. Common secret-key examples are included by default.",
           "items": {
             "type": "string"
           }
@@ -154,6 +170,11 @@
           "type": "boolean",
           "default": true,
           "description": "Sync VS Code settings (settings.json)."
+        },
+        "soloboisSettingsSync.authoritativeDownload": {
+          "type": "boolean",
+          "default": false,
+          "description": "원격 settings.json을 authoritative하게 적용할지 여부입니다. false면 기존 deep merge를 유지하고, true면 동기화 대상 키는 원격값으로 그대로 덮어써서 원격에서 삭제된 키도 로컬에서 제거합니다."
         },
         "soloboisSettingsSync.syncExtensions": {
           "type": "boolean",
