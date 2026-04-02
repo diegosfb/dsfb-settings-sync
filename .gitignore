@@ -10,6 +10,10 @@ plan/
 
 # Scripts (Local development)
 *.bat
+!build.bat
+!commit.bat
+!publish.bat
+!release.bat
 fetch_gist.js
 
 # Environment / Secret files

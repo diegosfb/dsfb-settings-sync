@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v1.0.17)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run package
+
+      - name: Resolve tag/version
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+
+          VERSION="${TAG#v}"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify package.json version matches tag
+        shell: bash
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "${{ steps.vars.outputs.version }}" ]; then
+            echo "package.json version ($PKG_VERSION) does not match tag version (${{ steps.vars.outputs.version }})"
+            exit 1
+          fi
+
+      - name: Generate release notes from CHANGELOG
+        shell: bash
+        run: |
+          node scripts/extract-changelog.mjs "${{ steps.vars.outputs.version }}" > release-notes.md
+
+      - name: Package VSIX
+        shell: bash
+        run: |
+          npx vsce package -o "solobois-settings-sync-${{ steps.vars.outputs.version }}.vsix"
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          body_path: release-notes.md
+          files: solobois-settings-sync-${{ steps.vars.outputs.version }}.vsix
