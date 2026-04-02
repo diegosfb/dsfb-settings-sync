@@ -9,11 +9,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mingjae1/antigravity-sync"
+    "url": "https://github.com/mingjae1/solobois-settings-sync"
   },
-  "homepage": "https://github.com/mingjae1/antigravity-sync#readme",
+  "homepage": "https://github.com/mingjae1/solobois-settings-sync#readme",
   "bugs": {
-    "url": "https://github.com/mingjae1/antigravity-sync/issues"
+    "url": "https://github.com/mingjae1/solobois-settings-sync/issues"
   },
   "gitlab": "https://gitlab.com/soloboi/solobois-settings-sync",
   "keywords": [
@@ -114,6 +114,11 @@
         "category": "Soloboi Sync"
       },
       {
+        "command": "soloboisSettingsSync.toggleCustomMarketplaceAutoUpdate",
+        "title": "커스텀 마켓 자동 업데이트 토글",
+        "category": "Soloboi Sync"
+      },
+      {
         "command": "soloboisSettingsSync.checkCustomMarketplaceUpdates",
         "title": "커스텀 마켓 업데이트 확인",
         "category": "Soloboi Sync"
@@ -121,6 +126,21 @@
       {
         "command": "soloboisSettingsSync.registerPrivateExtension",
         "title": "사설 익스텐션 등록",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.openSettings",
+        "title": "설정 열기",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.openRepository",
+        "title": "GitHub 저장소 열기",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.reportIssue",
+        "title": "이슈/버그 신고",
         "category": "Soloboi Sync"
       }
     ],

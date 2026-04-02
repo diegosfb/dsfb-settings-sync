@@ -70,6 +70,20 @@ echo Pushing commit and tag (this triggers GitHub Actions release)...
 git push origin
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
+REM If origin's default branch is different (e.g. origin/HEAD -> origin/master),
+REM also push the current HEAD to that default branch to avoid manual GitHub merges.
+for /f "delims=" %%h in ('git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2^>nul') do set ORIGIN_HEAD=%%h
+for /f "delims=" %%b in ('git symbolic-ref --short HEAD') do set CURRENT_BRANCH=%%b
+if not "%ORIGIN_HEAD%"=="" (
+  for /f "tokens=2 delims=/" %%d in ("%ORIGIN_HEAD%") do set DEFAULT_BRANCH=%%d
+  if not "%DEFAULT_BRANCH%"=="" if /i not "%CURRENT_BRANCH%"=="%DEFAULT_BRANCH%" (
+    echo Detected origin default branch: %DEFAULT_BRANCH% (current: %CURRENT_BRANCH%)
+    echo Also pushing HEAD -> %DEFAULT_BRANCH%...
+    git push origin HEAD:%DEFAULT_BRANCH%
+    if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+  )
+)
+
 git push origin "%TAG%"
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 

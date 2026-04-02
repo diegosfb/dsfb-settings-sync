@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import { AuthManager } from './auth';
 import { GistService } from './gistService';
 import { marketplaceManager } from './marketplaceManager';
@@ -256,6 +256,39 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             vscode.TreeItemCollapsibleState.None,
             { command: 'soloboisSettingsSync.configureIgnoredSettings', title: 'Manage Ignored Settings' },
             new vscode.ThemeIcon('list-filter')
+        ));
+
+        items.push(separator());
+
+        // ── HELP ──────────────────────────────────────────────────────────────
+        items.push(new SyncTreeItem(
+            'HELP',
+            'Open settings and support links.',
+            vscode.TreeItemCollapsibleState.None,
+            undefined,
+            new vscode.ThemeIcon('question'),
+            'section-header'
+        ));
+        items.push(new SyncTreeItem(
+            'Open Settings',
+            'Open Soloboi\'s Settings Sync settings.',
+            vscode.TreeItemCollapsibleState.None,
+            { command: 'soloboisSettingsSync.openSettings', title: 'Open Settings' },
+            new vscode.ThemeIcon('gear')
+        ));
+        items.push(new SyncTreeItem(
+            'Open GitHub Repository',
+            'Open the project repository in your browser.',
+            vscode.TreeItemCollapsibleState.None,
+            { command: 'soloboisSettingsSync.openRepository', title: 'Open Repository' },
+            new vscode.ThemeIcon('mark-github')
+        ));
+        items.push(new SyncTreeItem(
+            'Report an Issue',
+            'Open GitHub issues to report a bug or request a feature.',
+            vscode.TreeItemCollapsibleState.None,
+            { command: 'soloboisSettingsSync.reportIssue', title: 'Report Issue' },
+            new vscode.ThemeIcon('bug')
         ));
 
         return items;
