@@ -142,6 +142,11 @@
         "command": "soloboisSettingsSync.reportIssue",
         "title": "이슈/버그 신고",
         "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.getStarted",
+        "title": "Getting Started",
+        "category": "Soloboi Sync"
       }
     ],
     "keybindings": [

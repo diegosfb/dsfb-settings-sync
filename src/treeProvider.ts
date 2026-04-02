@@ -270,6 +270,13 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             'section-header'
         ));
         items.push(new SyncTreeItem(
+            'Getting Started',
+            'Open the Getting Started wizard.',
+            vscode.TreeItemCollapsibleState.None,
+            { command: 'soloboisSettingsSync.getStarted', title: 'Getting Started' },
+            new vscode.ThemeIcon('rocket')
+        ));
+        items.push(new SyncTreeItem(
             'Open Settings',
             'Open Soloboi\'s Settings Sync settings.',
             vscode.TreeItemCollapsibleState.None,

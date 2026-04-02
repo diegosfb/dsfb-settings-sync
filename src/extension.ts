@@ -72,6 +72,16 @@ type SyncProfile = {
     ignoredExtensions: string[];
 };
 
+type GettingStartedAction =
+    | 'login'
+    | 'useExistingGist'
+    | 'createOrUpload'
+    | 'syncNow'
+    | 'viewDiff'
+    | 'openSettings'
+    | 'openRepo'
+    | 'reportIssue';
+
 function normalizeIgnoredSettings(keys: string[]): string[] {
     const seen = new Set<string>();
     const normalized: string[] = [];
@@ -86,6 +96,99 @@ function normalizeIgnoredSettings(keys: string[]): string[] {
     }
 
     return normalized;
+}
+
+async function runGettingStartedWizard(context: vscode.ExtensionContext): Promise<void> {
+    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const gistId = config.get<string>('gistId');
+    const loggedIn = authManager?.isLoggedIn() ?? false;
+
+    const items: Array<vscode.QuickPickItem & { action: GettingStartedAction }> = [];
+
+    if (!loggedIn) {
+        items.push({
+            label: '$(account) Login to GitHub',
+            description: 'Required to access your Gist',
+            action: 'login'
+        });
+    }
+
+    items.push(
+        {
+            label: '$(key) Use existing Gist (Set ID + Download)',
+            description: gistId ? `Current: ${gistId.substring(0, 8)}…` : 'Best if you already have a sync Gist',
+            action: 'useExistingGist'
+        },
+        {
+            label: '$(cloud-upload) Create new Gist (Upload)',
+            description: 'Uploads local settings and creates a new Gist if needed',
+            action: 'createOrUpload'
+        },
+        {
+            label: '$(sync) Sync Now',
+            description: 'Two-way sync (upload & download)',
+            action: 'syncNow'
+        },
+        {
+            label: '$(diff) View Local vs Remote Diff',
+            description: 'Preview changes without applying',
+            action: 'viewDiff'
+        },
+        {
+            label: '$(gear) Open Settings',
+            description: 'Configure sync behavior',
+            action: 'openSettings'
+        },
+        {
+            label: '$(mark-github) Open GitHub Repository',
+            description: 'README / changelog / source',
+            action: 'openRepo'
+        },
+        {
+            label: '$(bug) Report an Issue',
+            description: 'Bug report / feature request',
+            action: 'reportIssue'
+        }
+    );
+
+    const picked = await vscode.window.showQuickPick(items, {
+        title: "Soloboi's Settings Sync — Getting Started",
+        placeHolder: 'Pick what you want to do next'
+    });
+
+    if (!picked) {
+        return;
+    }
+
+    await context.globalState.update('setupPrompted', true);
+
+    switch (picked.action) {
+        case 'login':
+            await vscode.commands.executeCommand('soloboisSettingsSync.login');
+            break;
+        case 'useExistingGist':
+            await vscode.commands.executeCommand('soloboisSettingsSync.setGistId');
+            await vscode.commands.executeCommand('soloboisSettingsSync.downloadNow');
+            break;
+        case 'createOrUpload':
+            await vscode.commands.executeCommand('soloboisSettingsSync.uploadNow');
+            break;
+        case 'syncNow':
+            await vscode.commands.executeCommand('soloboisSettingsSync.syncNow');
+            break;
+        case 'viewDiff':
+            await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            break;
+        case 'openSettings':
+            await vscode.commands.executeCommand('soloboisSettingsSync.openSettings');
+            break;
+        case 'openRepo':
+            await vscode.commands.executeCommand('soloboisSettingsSync.openRepository');
+            break;
+        case 'reportIssue':
+            await vscode.commands.executeCommand('soloboisSettingsSync.reportIssue');
+            break;
+    }
 }
 
 function normalizeExtensionIds(ids: string[]): string[] {
@@ -1291,6 +1394,12 @@ export async function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('soloboisSettingsSync.getStarted', async () => {
+            await runGettingStartedWizard(context);
+        })
+    );
+
     registerPrototypeCommands(context, {
         authManager,
         gistService,
@@ -1305,16 +1414,15 @@ export async function activate(context: vscode.ExtensionContext) {
     const prompted = context.globalState.get<boolean>('setupPrompted', false);
 
     if (!gistId && !prompted) {
-        // Welcome Wizard Prompt
         vscode.window.showInformationMessage(
-            'Welcome to Soloboi\'s Settings Sync. Start setup to download from an existing Gist, or skip for now.',
-            'Start Setup', 'Skip'
-        ).then(async (selection) => {
-            if (selection === 'Start Setup') {
-                context.globalState.update('setupPrompted', true);
-                vscode.commands.executeCommand('soloboisSettingsSync.downloadNow');
-            } else if (selection === 'Skip') {
-                context.globalState.update('setupPrompted', true);
+            "Welcome to Soloboi's Settings Sync. Open Getting Started?",
+            'Getting Started',
+            'Later'
+        ).then(async selection => {
+            if (selection === 'Getting Started') {
+                await runGettingStartedWizard(context);
+            } else if (selection === 'Later') {
+                await context.globalState.update('setupPrompted', true);
             }
         });
     }
@@ -1454,7 +1562,16 @@ async function uploadSettings(
         await gistService.updateGist(gistId, files, token, description, filesToDelete);
         await pruneIntentionallyRemovedExtensions(context, files['extensions.json']?.content);
         if (!silent) {
-            vscode.window.showInformationMessage("Soloboi's Settings Sync: Uploaded to Gist.");
+            const selection = await vscode.window.showInformationMessage(
+                "Soloboi's Settings Sync: Uploaded to Gist.",
+                'Open Gist',
+                'View Output'
+            );
+            if (selection === 'Open Gist') {
+                await vscode.env.openExternal(vscode.Uri.parse(`https://gist.github.com/${gistId}`));
+            } else if (selection === 'View Output') {
+                outputChannel.show(true);
+            }
         }
 
         const now = new Date().toISOString();
@@ -1546,6 +1663,18 @@ async function downloadSettings(
             isApplyingRemoteChanges = false;
             suspendAutoUpload(suppressionWindow);
         }
+        if (!silent) {
+            const selection = await vscode.window.showInformationMessage(
+                "Soloboi's Settings Sync: Downloaded and applied.",
+                'View Output',
+                'View Diff'
+            );
+            if (selection === 'View Output') {
+                outputChannel.show(true);
+            } else if (selection === 'View Diff') {
+                await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            }
+        }
         return true;
 
     } catch (err: any) {
@@ -1575,7 +1704,17 @@ async function fullSync(context: vscode.ExtensionContext): Promise<void> {
             return;
         }
         await uploadSettings(context, false);
-        vscode.window.showInformationMessage("Soloboi's Settings Sync: Sync complete!");
+        vscode.window.showInformationMessage(
+            "Soloboi's Settings Sync: Sync complete!",
+            'View Output',
+            'View Diff'
+        ).then(async selection => {
+            if (selection === 'View Output') {
+                outputChannel.show(true);
+            } else if (selection === 'View Diff') {
+                await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            }
+        });
     } else {
         await uploadSettings(context, false);
     }
@@ -2292,8 +2431,15 @@ async function applyGistData(
             const warningText = gistId
                 ? `This gist is untrusted (${gistId}). Extension install/uninstall is blocked. Set soloboisSettingsSync.gistTrust[\"${gistId}\"] = \"trusted\" to enable.`
                 : 'This gist is untrusted. Extension install/uninstall is blocked.';
-            vscode.window.showWarningMessage(warningText, 'Open Settings').then(selection => {
-                if (selection === 'Open Settings') {
+            const actions = gistId ? ['Trust This Gist', 'Open Settings'] : ['Open Settings'];
+            vscode.window.showWarningMessage(warningText, ...(actions as any)).then(async selection => {
+                if (selection === 'Trust This Gist' && gistId) {
+                    const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                    const trustMap = cfg.get<Record<string, string>>('gistTrust', {}) || {};
+                    trustMap[gistId] = 'trusted';
+                    await cfg.update('gistTrust', trustMap, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Marked ${gistId} as trusted.`);
+                } else if (selection === 'Open Settings') {
                     void vscode.commands.executeCommand('workbench.action.openSettings', 'soloboisSettingsSync.gistTrust');
                 }
             });
