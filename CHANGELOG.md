@@ -17,6 +17,28 @@ _다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
 
 ---
 
+## [1.1.3] - 2026-04-03
+
+### Added
+- **View Local vs Remote Diff** now opens VS Code's built-in diff editor instead of the Output panel. Settings, keybindings, and extensions are each shown as a side-by-side colored diff (`Remote (Gist) ↔ Local`).
+- **Share Your Settings**: Create a public Gist snapshot of your current settings (secrets auto-masked), copy the shareable URL, and rename or revisit previously shared Gists — all from the sidebar or Command Palette.
+- **Remove Private Extension**: Each registered private extension in the sidebar now has a click-to-remove action.
+
+### Improved
+- Custom Marketplace entries now show an explicit "🗑 Click to remove" note in their tooltip.
+
+<details>
+<summary>한국어 (요약)</summary>
+
+- Diff 뷰: Output 탭 → VS Code 내장 diff 에디터 (파일별 side-by-side)
+- Share Your Settings: 공개 Gist 스냅샷 생성 + URL 복사 + 이름 변경
+- Private Extension 삭제 트리거 추가
+- 커스텀 마켓플레이스 항목 삭제 안내 tooltip 개선
+
+</details>
+
+---
+
 ## [1.1.2] - 2026-04-03
 
 ### Added
