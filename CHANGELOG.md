@@ -6,6 +6,18 @@ All notable changes to Soloboi's Settings Sync are documented here.
 
 ## [Unreleased]
 
+_Add changes for the next release here._
+
+<details>
+<summary>한국어 (요약)</summary>
+
+_다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
+
+</details>
+
+---
+## [1.1.7] - 2026-04-03
+
 ### Added
 - `setGistId` now accepts both raw Gist IDs and full Gist URLs, then normalizes/stores the extracted ID automatically.
 
@@ -19,6 +31,8 @@ All notable changes to Soloboi's Settings Sync are documented here.
 - README를 랜딩 페이지 스타일로 재구성했습니다. 상단에는 빠른 공유/동기화만 노출하고, 상세 명령/설정은 접이식으로 정리했습니다.
 
 </details>
+
+---
 
 ---
 ## [1.1.6] - 2026-04-03
