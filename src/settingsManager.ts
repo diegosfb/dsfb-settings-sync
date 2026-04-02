@@ -1,11 +1,14 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as cp from 'child_process';
 import * as path from 'path';
+import { sensitiveDataGuard } from './sensitiveDataGuard';
 
 /**
  * Manages reading/writing local VS Code settings files, keybindings, and extensions.
  */
 export class SettingsManager {
+
     /**
      * Read extension directory names marked for uninstall in `.obsolete`.
      * VS Code/Antigravity writes this file before reload completes uninstall.
@@ -45,6 +48,33 @@ export class SettingsManager {
                 .map(id => (id || '').trim().toLowerCase())
                 .filter(id => !!id)
         );
+    }
+
+    private installExtensionViaCLI(id: string): Promise<void> {
+        const appRoot = vscode.env.appRoot;
+        let cliPath: string;
+
+        if (process.platform === 'win32') {
+            cliPath = path.join(appRoot, '..', 'bin', 'code.cmd');
+        } else if (process.platform === 'darwin') {
+            cliPath = path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'code');
+        } else {
+            cliPath = path.join(appRoot, '..', 'bin', 'code');
+        }
+
+        if (!fs.existsSync(cliPath)) {
+            cliPath = 'code';
+        }
+
+        return new Promise<void>((resolve, reject) => {
+            cp.execFile(cliPath, ['--install-extension', id], err => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve();
+            });
+        });
     }
 
     /**
@@ -90,7 +120,7 @@ export class SettingsManager {
         return dir ? path.join(dir, 'keybindings.json') : null;
     }
 
-    // ── Read Operations ──────────────────────────────────────────────
+    // ?? Read Operations ??????????????????????????????????????????????
 
     /**
      * Read local settings.json content as a string.
@@ -104,7 +134,10 @@ export class SettingsManager {
         }
         const content = fs.readFileSync(filePath, 'utf8');
         const fileObj = this.parseJsonc(content);
-        if (!fileObj) return content;
+        if (!fileObj) {
+            // JSONC parse failed — apply value-based redaction on raw content as fallback
+            return sensitiveDataGuard.redactJsonString(content, 'private').result;
+        }
 
         // Collect all extension configuration values (including defaults)
         const extSettings = this.readAllExtensionSettings();
@@ -123,7 +156,7 @@ export class SettingsManager {
         }
 
         // Convert absolute paths to portable variables for cross-machine sync
-        return this.portablizePaths(JSON.stringify(merged, null, 4));
+        return this.portablizePaths(JSON.stringify(sensitiveDataGuard.redactObject(merged, 'private').result, null, 4));
     }
 
     /**
@@ -135,6 +168,8 @@ export class SettingsManager {
         if (!filePath || !fs.existsSync(filePath)) {
             return '[]';
         }
+        // keybindings.json is an array, so key-based redaction is skipped here.
+        // Command args may still embed secrets and should be reviewed manually before sync.
         return fs.readFileSync(filePath, 'utf8');
     }
 
@@ -191,7 +226,7 @@ export class SettingsManager {
         const allSettings: Record<string, any> = {};
         const processedKeys = new Set<string>();
 
-        // ── Approach 1: VS Code API ─────────────────────────────────
+        // ?? Approach 1: VS Code API ?????????????????????????????????
         let apiExtCount = 0;
         for (const ext of vscode.extensions.all) {
             const publisher = (ext.packageJSON?.publisher || '').toLowerCase();
@@ -218,7 +253,7 @@ export class SettingsManager {
             }
         }
 
-        // ── Approach 2: Disk scan (fallback) ────────────────────────
+        // ?? Approach 2: Disk scan (fallback) ????????????????????????
         let diskExtCount = 0;
         const extensionsDir = this.getExtensionsDir();
         if (extensionsDir) {
@@ -345,10 +380,7 @@ export class SettingsManager {
      */
     readAntigravityConfig(): string | null {
         const filePath = this.getAntigravityConfigPath();
-        if (!filePath || !fs.existsSync(filePath)) {
-            return null;
-        }
-        return fs.readFileSync(filePath, 'utf8');
+        return this.readRedactedJsonFile(filePath);
     }
 
     /**
@@ -391,7 +423,7 @@ export class SettingsManager {
         return JSON.stringify(snippetFiles, null, 2);
     }
 
-    // ── Write Operations ─────────────────────────────────────────────
+    // ?? Write Operations ?????????????????????????????????????????????
 
     /**
      * Backup current settings before download.
@@ -498,9 +530,13 @@ export class SettingsManager {
             localObj = this.parseJsonc(localContent) ?? {};
         }
 
-        const merged = this.deepMerge(localObj, remoteObj);
-        this.ensureDir(path.dirname(filePath));
-        fs.writeFileSync(filePath, JSON.stringify(merged, null, 4), 'utf8');
+        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const authoritativeDownload = config.get<boolean>('authoritativeDownload', false);
+        const nextSettings = authoritativeDownload
+            ? this.preserveIgnoredLocalSettings(localObj, remoteObj, ignored)
+            : this.deepMerge(localObj, remoteObj);
+
+        this.writeFileIfChanged(filePath, JSON.stringify(nextSettings, null, 4));
     }
 
     /**
@@ -511,8 +547,7 @@ export class SettingsManager {
         if (!filePath) {
             throw new Error('Cannot determine keybindings.json path');
         }
-        this.ensureDir(path.dirname(filePath));
-        fs.writeFileSync(filePath, content, 'utf8');
+        this.writeFileIfChanged(filePath, content);
     }
 
     /**
@@ -525,8 +560,7 @@ export class SettingsManager {
             console.warn('Soloboi\'s Settings Sync: Cannot determine mcp_config.json path');
             return;
         }
-        this.ensureDir(path.dirname(filePath));
-        fs.writeFileSync(filePath, content, 'utf8');
+        this.writeFileIfChanged(filePath, content);
     }
 
     /**
@@ -538,8 +572,7 @@ export class SettingsManager {
             console.warn('Soloboi\'s Settings Sync: Cannot determine browserAllowlist.txt path');
             return;
         }
-        this.ensureDir(path.dirname(filePath));
-        fs.writeFileSync(filePath, content, 'utf8');
+        this.writeFileIfChanged(filePath, content);
     }
 
     /**
@@ -562,13 +595,39 @@ export class SettingsManager {
         }
 
         this.ensureDir(snippetsDir);
+        const resolvedSnippetsDir = path.resolve(snippetsDir);
+        const snippetsDirPrefix = this.normalizePathForComparison(
+            resolvedSnippetsDir.endsWith(path.sep) ? resolvedSnippetsDir : `${resolvedSnippetsDir}${path.sep}`
+        );
+        const remoteSnippetNames = new Set<string>();
 
         for (const [filename, content] of Object.entries(snippetFiles)) {
-            const ext = path.extname(filename).toLowerCase();
-            if (ext === '.json' || ext === '.code-snippets') {
-                const filePath = path.join(snippetsDir, filename);
-                fs.writeFileSync(filePath, content, 'utf8');
+            const resolvedFilePath = this.resolveSnippetFilePath(snippetsDir, snippetsDirPrefix, filename);
+            if (!resolvedFilePath) {
+                continue;
             }
+
+            remoteSnippetNames.add(path.basename(resolvedFilePath));
+            this.writeFileIfChanged(resolvedFilePath, content);
+        }
+
+        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        if (!config.get<boolean>('authoritativeDownload', false)) {
+            return;
+        }
+
+        const entries = fs.readdirSync(snippetsDir);
+        for (const entry of entries) {
+            const resolvedFilePath = this.resolveSnippetFilePath(snippetsDir, snippetsDirPrefix, entry);
+            if (!resolvedFilePath || remoteSnippetNames.has(path.basename(resolvedFilePath))) {
+                continue;
+            }
+
+            if (!fs.existsSync(resolvedFilePath) || !fs.statSync(resolvedFilePath).isFile()) {
+                continue;
+            }
+
+            fs.unlinkSync(resolvedFilePath);
         }
     }
 
@@ -595,10 +654,7 @@ export class SettingsManager {
             const id = (ext.id || '').toLowerCase();
             if (id && !ignoredIds.has(id) && !installed.has(id)) {
                 try {
-                    await vscode.commands.executeCommand(
-                        'workbench.extensions.installExtension',
-                        ext.id
-                    );
+                    await this.installExtensionViaCLI(ext.id);
                     count++;
                     console.log(`Soloboi\'s Settings Sync: Installed extension ${ext.id}`);
                 } catch (err) {
@@ -655,7 +711,7 @@ export class SettingsManager {
         return count;
     }
 
-    // ── Portable Path System ─────────────────────────────────────────
+    // ?? Portable Path System ?????????????????????????????????????????
 
     /**
      * Build a list of path variable mappings for the current machine.
@@ -712,7 +768,7 @@ export class SettingsManager {
 
             // Quad-escaped: settings.json stores "C:\\Users", JSON.stringify makes "C:\\\\Users"
             const quadEscaped = value.replace(/\\/g, '\\\\\\\\');
-            // Double-escaped: raw path "C:\Users" → JSON.stringify → "C:\\Users"
+            // Double-escaped: raw path "C:\Users" ??JSON.stringify ??"C:\\Users"
             const doubleEscaped = value.replace(/\\/g, '\\\\');
             // Forward-slash variant
             const forwardSlash = value.replace(/\\/g, '/');
@@ -754,7 +810,7 @@ export class SettingsManager {
         return result;
     }
 
-    // ── Utilities ────────────────────────────────────────────────────
+    // ?? Utilities ????????????????????????????????????????????????????
 
     /**
      * Get ignored patterns from configuration.
@@ -762,6 +818,46 @@ export class SettingsManager {
     private getIgnoredPatterns(): string[] {
         const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
         return config.get<string[]>('ignoredSettings', []);
+    }
+
+    private readRedactedJsonFile(filePath: string | null): string | null {
+        if (!filePath || !fs.existsSync(filePath)) {
+            return null;
+        }
+
+        const content = fs.readFileSync(filePath, 'utf8');
+        const parsed = this.parseJsonc(content);
+        if (parsed === null) {
+            return content;
+        }
+
+        return JSON.stringify(sensitiveDataGuard.redactObject(parsed, 'private').result, null, 4);
+    }
+
+    /**
+     * Aggressively sanitize JSON for use in Public Gists.
+     * Removes common secret-like keys (tokens, cookies, auth, private keys, etc.) recursively.
+     */
+    sanitizeJsonForPublicGist(jsonText: string): string {
+        return sensitiveDataGuard.redactJsonString(jsonText, 'public').result;
+    }
+
+    /**
+     * Preserve ignored local keys when authoritative download mode is enabled.
+     */
+    private preserveIgnoredLocalSettings(localObj: any, remoteObj: any, ignoredPatterns: string[]): any {
+        if (ignoredPatterns.length === 0 || !localObj || typeof localObj !== 'object' || Array.isArray(localObj)) {
+            return remoteObj;
+        }
+
+        const preserved = { ...remoteObj };
+        for (const [key, value] of Object.entries(localObj)) {
+            if (this.shouldIgnore(key, ignoredPatterns)) {
+                preserved[key] = value;
+            }
+        }
+
+        return preserved;
     }
 
     /**
@@ -875,4 +971,50 @@ export class SettingsManager {
             fs.mkdirSync(dirPath, { recursive: true });
         }
     }
+
+    /**
+     * Write a file only when the content actually changed.
+     */
+    private writeFileIfChanged(filePath: string, content: string): void {
+        if (fs.existsSync(filePath)) {
+            const currentContent = fs.readFileSync(filePath, 'utf8');
+            if (currentContent === content) {
+                return;
+            }
+        }
+
+        this.ensureDir(path.dirname(filePath));
+        fs.writeFileSync(filePath, content, 'utf8');
+    }
+
+    private resolveSnippetFilePath(snippetsDir: string, snippetsDirPrefix: string, filename: string): string | null {
+        const sanitizedFilename = path.basename(filename);
+        const normalizedFilename = sanitizedFilename.toLowerCase();
+
+        if (filename.includes('..') || sanitizedFilename.includes('..')) {
+            console.warn(`Soloboi's Settings Sync: Skipping suspicious snippet filename "${filename}"`);
+            return null;
+        }
+
+        if (!normalizedFilename.endsWith('.json') && !normalizedFilename.endsWith('.code-snippets')) {
+            return null;
+        }
+
+        const resolvedFilePath = path.resolve(path.join(snippetsDir, sanitizedFilename));
+        if (!this.normalizePathForComparison(resolvedFilePath).startsWith(snippetsDirPrefix)) {
+            console.warn(`Soloboi's Settings Sync: Skipping out-of-bounds snippet filename "${filename}"`);
+            return null;
+        }
+
+        return resolvedFilePath;
+    }
+
+    private normalizePathForComparison(filePath: string): string {
+        return process.platform === 'win32'
+            ? filePath.toLowerCase()
+            : filePath;
+    }
 }
+
+
+
