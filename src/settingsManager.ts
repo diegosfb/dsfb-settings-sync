@@ -2,17 +2,12 @@
 import * as fs from 'fs';
 import * as cp from 'child_process';
 import * as path from 'path';
+import { sensitiveDataGuard } from './sensitiveDataGuard';
 
 /**
  * Manages reading/writing local VS Code settings files, keybindings, and extensions.
  */
 export class SettingsManager {
-    private readonly SECRET_KEY_PATTERNS = [
-        /token/i,
-        /secret/i,
-        /password/i,
-        /api[_-]?key/i
-    ];
 
     /**
      * Read extension directory names marked for uninstall in `.obsolete`.
@@ -139,7 +134,10 @@ export class SettingsManager {
         }
         const content = fs.readFileSync(filePath, 'utf8');
         const fileObj = this.parseJsonc(content);
-        if (!fileObj) return content;
+        if (!fileObj) {
+            // JSONC parse failed — apply value-based redaction on raw content as fallback
+            return sensitiveDataGuard.redactJsonString(content, 'private').result;
+        }
 
         // Collect all extension configuration values (including defaults)
         const extSettings = this.readAllExtensionSettings();
@@ -158,7 +156,7 @@ export class SettingsManager {
         }
 
         // Convert absolute paths to portable variables for cross-machine sync
-        return this.portablizePaths(JSON.stringify(this.redactSecrets(merged), null, 4));
+        return this.portablizePaths(JSON.stringify(sensitiveDataGuard.redactObject(merged, 'private').result, null, 4));
     }
 
     /**
@@ -833,31 +831,15 @@ export class SettingsManager {
             return content;
         }
 
-        return JSON.stringify(this.redactSecrets(parsed), null, 4);
+        return JSON.stringify(sensitiveDataGuard.redactObject(parsed, 'private').result, null, 4);
     }
 
     /**
-     * Remove known secret-like keys before syncing settings.
+     * Aggressively sanitize JSON for use in Public Gists.
+     * Removes common secret-like keys (tokens, cookies, auth, private keys, etc.) recursively.
      */
-    private redactSecrets<T>(value: T): T {
-        if (Array.isArray(value)) {
-            return value.map(item => this.redactSecrets(item)) as T;
-        }
-
-        if (!value || typeof value !== 'object') {
-            return value;
-        }
-
-        const redacted: Record<string, any> = {};
-        for (const [key, nestedValue] of Object.entries(value)) {
-            if (this.SECRET_KEY_PATTERNS.some(pattern => pattern.test(key))) {
-                continue;
-            }
-
-            redacted[key] = this.redactSecrets(nestedValue);
-        }
-
-        return redacted as T;
+    sanitizeJsonForPublicGist(jsonText: string): string {
+        return sensitiveDataGuard.redactJsonString(jsonText, 'public').result;
     }
 
     /**
@@ -1033,5 +1015,6 @@ export class SettingsManager {
             : filePath;
     }
 }
+
 
 

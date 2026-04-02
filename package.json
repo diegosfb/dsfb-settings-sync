@@ -82,6 +82,46 @@
         "command": "soloboisSettingsSync.runSettingsE2ETest",
         "title": "설정 E2E 테스트 실행",
         "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.setCustomMarketplaceUrl",
+        "title": "Custom Marketplace URL 설정",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.togglePublicGist",
+        "title": "Public Gist 토글 (공개/비공개)",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.showLocalVsRemoteDiff",
+        "title": "로컬 vs 원격 설정 Diff 보기",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.addMarketplace",
+        "title": "마켓플레이스 추가",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.removeMarketplace",
+        "title": "마켓플레이스 제거",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.reorderMarketplace",
+        "title": "마켓플레이스 스캔 순서 변경",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.checkCustomMarketplaceUpdates",
+        "title": "커스텀 마켓 업데이트 확인",
+        "category": "Soloboi Sync"
+      },
+      {
+        "command": "soloboisSettingsSync.registerPrivateExtension",
+        "title": "사설 익스텐션 등록",
+        "category": "Soloboi Sync"
       }
     ],
     "keybindings": [
@@ -129,18 +169,45 @@
         },
         "soloboisSettingsSync.autoSyncOnStartup": {
           "type": "boolean",
-          "default": true,
-          "description": "Automatically download and apply settings from Gist on startup."
+          "default": false,
+          "description": "Automatically download and apply settings from Gist on startup. Requires soloboisSettingsSync.autoSync=true."
+        },
+        "soloboisSettingsSync.autoSync": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master toggle for automatic sync behavior. When false, startup sync and auto-upload file watchers are disabled (manual commands still work)."
         },
         "soloboisSettingsSync.autoUploadOnChange": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically upload settings to Gist when local files change."
+          "description": "Automatically upload settings to Gist when local files change. Requires soloboisSettingsSync.autoSync=true."
         },
         "soloboisSettingsSync.autoUploadDelay": {
           "type": "number",
           "default": 5000,
           "description": "Delay in milliseconds before auto-uploading after a change is detected."
+        },
+        "soloboisSettingsSync.syncPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a sync preview (diff summary) before applying downloaded changes."
+        },
+        "soloboisSettingsSync.confirmExtensionSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before installing or uninstalling extensions during download."
+        },
+        "soloboisSettingsSync.gistTrust": {
+          "type": "object",
+          "default": {},
+          "description": "Per-Gist trust setting. Untrusted gists block extension install/uninstall during download. Example: { \"<gistId>\": \"trusted\" }",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "trusted",
+              "untrusted"
+            ]
+          }
         },
         "soloboisSettingsSync.ignoredSettings": {
           "type": "array",
@@ -213,6 +280,50 @@
           "type": "string",
           "default": "Default",
           "description": "The name of the currently active sync profile."
+        },
+        "soloboisSettingsSync.customMarketplaceUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Custom marketplace base URL (OpenVSX-compatible REST API). Used as fallback when extension status is unknown in the primary marketplace. Example: https://my-marketplace.example.com"
+        },
+        "soloboisSettingsSync.marketplaceRegistry": {
+          "type": "object",
+          "default": {},
+          "description": "Custom marketplace registry. Maps domain key (e.g. 'open-vsx.org') to base URL. Example: { \"my-market.example.com\": \"https://my-market.example.com\" }",
+          "additionalProperties": { "type": "string" }
+        },
+        "soloboisSettingsSync.marketplaceScanOrder": {
+          "type": "array",
+          "default": [],
+          "description": "Domain keys defining the scan order for marketplace fallback. Earlier entries are checked first.",
+          "items": { "type": "string" }
+        },
+        "soloboisSettingsSync.customMarketplaceAutoUpdate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically install updates found in custom marketplaces without prompting."
+        },
+        "soloboisSettingsSync.customMarketplaceUpdateCheck": {
+          "type": "string",
+          "enum": ["startup", "disabled"],
+          "default": "disabled",
+          "description": "When to check for updates from custom marketplaces. 'startup' checks on activation, 'disabled' disables automatic checks."
+        },
+        "soloboisSettingsSync.privateExtensions": {
+          "type": "array",
+          "default": [],
+          "description": "List of private/unlisted extensions for sync guidance. Each entry has id, version, optional vsixUrl, localPath, and note.",
+          "items": {
+            "type": "object",
+            "required": ["id", "version"],
+            "properties": {
+              "id": { "type": "string", "description": "Extension ID (publisher.name)" },
+              "version": { "type": "string", "description": "Extension version" },
+              "vsixUrl": { "type": "string", "description": "Direct VSIX download URL for automatic install" },
+              "localPath": { "type": "string", "description": "Local .vsix file path for manual guidance" },
+              "note": { "type": "string", "description": "Optional note for this extension" }
+            }
+          }
         }
       }
     }
