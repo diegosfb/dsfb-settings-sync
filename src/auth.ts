@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as https from 'https';
 import { pollGitHubDeviceAuthorization } from './prototypes/playwrightAuthHelper';
 

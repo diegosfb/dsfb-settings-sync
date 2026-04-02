@@ -1,4 +1,4 @@
-﻿import * as https from "https";
+import * as https from "https";
 
 /**
  * [프로토타입] VS Code 마켓플레이스에서 익스텐션의 상태(활성/삭제/deprecated)를 HTTPS GET으로 확인한다.

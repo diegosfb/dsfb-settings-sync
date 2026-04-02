@@ -1,4 +1,4 @@
-﻿import { promises as fs } from "fs";
+import { promises as fs } from "fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import * as os from "os";
 import * as path from "path";

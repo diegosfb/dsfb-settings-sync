@@ -1,4 +1,4 @@
-﻿import { createHash } from "crypto";
+import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
 import * as path from "path";

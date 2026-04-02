@@ -1,4 +1,4 @@
-﻿import * as https from "https";
+import * as https from "https";
 
 /**
  * [프로토타입] GitHub 디바이스 코드 인증 폴링 헬퍼.

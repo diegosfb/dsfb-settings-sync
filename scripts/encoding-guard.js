@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 
 const rootDir = process.cwd();
@@ -28,11 +28,11 @@ for (const relativeFile of filesToScan) {
   }
 
   const bytes = fs.readFileSync(fullPath);
-  if (!hasUtf8Bom(bytes)) {
-    failures.push(`Missing UTF-8 BOM: ${relativeFile}`);
+  if (hasUtf8Bom(bytes)) {
+    failures.push(`Unexpected UTF-8 BOM (must be UTF-8 without BOM): ${relativeFile}`);
   }
 
-  const text = bytes.slice(3).toString("utf8");
+  const text = bytes.toString("utf8");
   if (text.includes(replacementChar)) {
     failures.push(`Found replacement character: ${relativeFile}`);
   }

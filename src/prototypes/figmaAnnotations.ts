@@ -1,4 +1,4 @@
-﻿import * as vscode from "vscode";
+import * as vscode from "vscode";
 
 /**
  * [프로토타입] Figma 파일의 댓글(코멘트)을 코드 파일의 JSDoc 주석으로 삽입하는 제안을 생성한다.
