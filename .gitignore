@@ -10,14 +10,11 @@ plan/
 
 # Scripts (Local development)
 *.bat
-!build.bat
-!commit.bat
-!publish.bat
-!release.bat
 fetch_gist.js
 
 # Environment / Secret files
 *.env
+token.env
 .env.local
 .env.*.local
 
@@ -49,7 +46,6 @@ npm-debug.log*
 .history/
 *.docx
 *.txt
-.gitignore
-.vscodeignore
 .claude/
+.playwright-mcp/
 marketplace-screenshot.png

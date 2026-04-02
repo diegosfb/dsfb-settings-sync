@@ -16,128 +16,44 @@ _다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
 </details>
 
 ---
-## [1.1.7] - 2026-04-03
+## [1.1.8] - 2026-04-03
 
 ### Added
-- `setGistId` now accepts both raw Gist IDs and full Gist URLs, then normalizes/stores the extracted ID automatically.
+- Share flow (`shareSettings`) for public settings snapshots with masked sensitive values and instant URL sharing.
+- Local vs Remote diff view in VS Code built-in diff editor, plus sync preview before applying.
+- Profile-based sync, custom marketplace registry/update checks, and private extension registration/removal.
+- Getting Started wizard and dedicated log channel.
+
+### Improved
+- Sidebar/action UX reorganized (collapsible groups, clearer tooltips, better command discoverability).
+- Startup/download safety (trust gate, conflict-safe startup sync, authoritative download mode).
+- Sensitive-data masking coverage and fallback behavior on parse failure.
 
 ### Changed
-- README was reorganized into a landing-style layout: quick share/sync onboarding is shown first, while detailed commands/settings are moved into collapsible sections.
+- `setGistId` now accepts both Gist ID and full Gist URL.
+- README was redesigned as a landing-first guide (share/sync quick start first).
+- Repository housekeeping updates (local script tracking policy and `.gitignore` cleanup).
+- Notes from 2026-04-02 ~ 2026-04-03 are unified into this single patch release.
 
 <details>
 <summary>한국어 (요약)</summary>
 
-- `setGistId`에서 Gist ID뿐 아니라 Gist URL도 입력받아 자동으로 ID를 추출/저장합니다.
-- README를 랜딩 페이지 스타일로 재구성했습니다. 상단에는 빠른 공유/동기화만 노출하고, 상세 명령/설정은 접이식으로 정리했습니다.
+### 추가
+- `shareSettings` 기반 공개 설정 공유 흐름(민감정보 마스킹 + URL 즉시 공유)을 추가했습니다.
+- VS Code 내장 diff 기반 로컬/원격 비교 및 적용 전 미리보기 기능을 강화했습니다.
+- 프로필 기반 동기화, 커스텀 마켓플레이스 레지스트리/업데이트 확인, Private 익스텐션 등록/삭제를 지원합니다.
+- 시작 마법사(Getting Started)와 전용 로그 채널을 추가했습니다.
 
-</details>
+### 개선
+- 사이드바/액션 UX를 재구성했습니다(접이식 섹션, 툴팁/명령 발견성 개선).
+- 시작 시 동기화 안정성을 강화했습니다(신뢰도 게이트, 충돌 방지 스타트업 동기화, authoritative download).
+- 민감정보 마스킹 범위와 파싱 실패 시 fallback 동작을 보강했습니다.
 
----
-
----
-## [1.1.6] - 2026-04-03
-
-### Fixed
-- `publish.bat` argument parsing is now order-independent. Running options in different order (for example, `--no-pause --no-bump`) no longer causes unintended version bumps.
-- `publish.bat` default behavior is now explicit: publish current version without bump unless a bump flag is provided.
-- Added clear bump flags to `publish.bat`: `--bump-patch`, `--bump-minor`, `--bump-major`.
-
-<details>
-<summary>한국어 (요약)</summary>
-
-- `publish.bat` 인자 파싱을 순서 독립으로 수정해 `--no-pause --no-bump` 순서에서도 의도치 않은 버전 증가가 발생하지 않습니다.
-- `publish.bat` 기본 동작을 명시적으로 현재 버전 배포(버전 bump 없음)로 통일했습니다.
-- 버전 증가 옵션을 명시 플래그로 추가했습니다: `--bump-patch`, `--bump-minor`, `--bump-major`.
-
-</details>
-
----
-
----
-## [1.1.4] - 2026-04-03
-
-<details>
-<summary>한국어 (요약)</summary>
-
-
-
-</details>
-
----
-
----
-## [1.1.3] - 2026-04-03
-
-### Added
-- **View Local vs Remote Diff** now opens VS Code's built-in diff editor instead of the Output panel. Settings, keybindings, and extensions are each shown as a side-by-side colored diff (`Remote (Gist) ↔ Local`).
-- **Share Your Settings**: Create a public Gist snapshot of your current settings (secrets auto-masked), copy the shareable URL, and rename or revisit previously shared Gists — all from the sidebar or Command Palette.
-- **Remove Private Extension**: Each registered private extension in the sidebar now has a click-to-remove action.
-
-### Improved
-- Custom Marketplace entries now show an explicit "🗑 Click to remove" note in their tooltip.
-
-<details>
-<summary>한국어 (요약)</summary>
-
-- Diff 뷰: Output 탭 → VS Code 내장 diff 에디터 (파일별 side-by-side)
-- Share Your Settings: 공개 Gist 스냅샷 생성 + URL 복사 + 이름 변경
-- Private Extension 삭제 트리거 추가
-- 커스텀 마켓플레이스 항목 삭제 안내 tooltip 개선
-
-</details>
-
----
-
-## [1.1.2] - 2026-04-03
-
-### Added
-- **Collapsible Sidebar Sections**: The activity bar panel is now organized into collapsible groups — Sync, Gist, Settings, Custom Marketplace, Private Extensions, Filters, Help. Keeps the panel clean and lets you focus on what you need.
-- **Sensitive Data Guard**: Unified masking engine with level-aware redaction (`private` / `public`). Covers 18 key patterns and 7 value patterns (GitHub PAT, AWS key, OpenAI key, Slack token, DB connection strings). Applied to keybindings and snippets on upload.
-- **Marketplace Manager**: Register multiple OpenVSX-compatible marketplaces by domain key. Define fallback scan order — the first marketplace that has the extension wins.
-- **Custom Marketplace Update Checker**: Checks installed extensions against registered custom marketplaces for newer versions (semver). Supports optional auto-update on startup or on-demand via sidebar.
-- **Private Extension Sync MVP**: Register private/unlisted extensions with optional VSIX URL for auto-install, or get local path guidance when no URL is provided. Detected automatically during download for unknown extensions.
-- **Getting Started Wizard**: Step-by-step setup flow for new users (login → gist → first sync).
-- **Separate Log Channel**: Extension activity logs are now in a dedicated channel, keeping the main output panel clean for sync reports.
-
-### Improved
-- **Sync Now tooltip**: Now explains why it differs from doing Upload + Download separately — remote is fetched first to prevent overwriting, and upload is blocked if download fails.
-- **Show History** moved into the Gist section for better discoverability alongside Set Gist ID and Switch Profile.
-- **JSONC parse failure fallback**: If `settings.json` cannot be parsed (e.g. contains syntax errors), sensitive values are still redacted before any content is returned.
-
-<details>
-<summary>한국어 (요약)</summary>
-
-- 사이드바 섹션 접기/펼치기 (Sync / Gist / Settings / 마켓플레이스 / Private / 필터 / Help)
-- 민감정보 통합 마스킹 엔진 (키패턴 18개 + 값패턴 7개, 레벨별 적용)
-- 커스텀 마켓플레이스 도메인 키 레지스트리 + 스캔 순서 관리
-- 커스텀 마켓 업데이트 확인 + VSIX 자동 설치
-- Private 익스텐션 등록 + 다운로드 시 자동 감지/안내
-- Getting Started 마법사, 별도 로그 채널 분리
-- Sync Now 동작 설명 툴팁 개선, Show History 위치 이동
-
-</details>
-
----
-
-## [1.1.1] - 2026-04-02
-
-### Added
-- **Sync Preview / Diff**: Preview changes before applying downloads (`soloboisSettingsSync.syncPreview`) and compare local vs remote without applying (`soloboisSettingsSync.showLocalVsRemoteDiff`).
-- **Gist Trust Gate** (`soloboisSettingsSync.gistTrust`): Extension install/uninstall is blocked for untrusted Gists (Gists not owned by the currently logged-in GitHub account) unless explicitly marked as trusted.
-- **Custom Marketplace Manager**: Register multiple OpenVSX-compatible marketplaces and define fallback scan order (`addMarketplace`, `removeMarketplace`, `reorderMarketplace`).
-- **Custom Marketplace Update Check**: Check and install extension updates from custom marketplaces (`checkCustomMarketplaceUpdates`), with optional auto-update (`customMarketplaceAutoUpdate`) and optional startup checks (`customMarketplaceUpdateCheck`).
-- **Private Extensions Helper**: Register private/unlisted extensions with optional VSIX URL and notes for guided installs during sync (`registerPrivateExtension`, `privateExtensions`).
-- **Public Gist Toggle**: Toggle whether newly created sync Gists should be Public or Private (Secret) (`togglePublicGist`, `publicGist`).
-- **Auto-Sync Master Toggle**: Added `soloboisSettingsSync.autoSync` to control startup sync and auto-upload watchers in one place.
-
-<details>
-<summary>한국어 (요약)</summary>
-
-- 미리보기/Diff + 로컬 vs 원격 비교
-- Gist 신뢰도 게이트로 익스텐션 설치/삭제 보호
-- 커스텀 마켓플레이스 등록/우선순위 + 업데이트 확인/설치
-- Private 익스텐션(VSIX URL/메모) 등록 지원
-- Public Gist 토글, `autoSync` 마스터 토글 추가
+### 변경
+- `setGistId`가 Gist ID뿐 아니라 전체 Gist URL도 입력받습니다.
+- README를 랜딩 우선 구조(공유/동기화 빠른 시작 중심)로 재정리했습니다.
+- 저장소 내부 정리(`.gitignore`/로컬 스크립트 추적 정책)를 반영했습니다.
+- 2026-04-02 ~ 2026-04-03 변경 내역은 이 단일 패치 릴리즈로 통합했습니다.
 
 </details>
 
