@@ -180,11 +180,11 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                             const isCurrent = g.id === currentGistId;
                             const label = g.description.replace(GIST_DESCRIPTION_PREFIX, '') || g.id;
                             items.push(new SyncTreeItem(
-                                (isCurrent ? '\u2713 ' : '  ') + label,
-                                `Gist ID: ${g.id}\nLast updated: ${new Date(g.updated_at).toLocaleString()}`,
+                                (isCurrent ? '\u2713 ' : '  ') + label + (g.public ? ' [public]' : ' [private]'),
+                                `Gist ID: ${g.id}\nVisibility: ${g.public ? 'Public' : 'Private'}\nLast updated: ${new Date(g.updated_at).toLocaleString()}`,
                                 vscode.TreeItemCollapsibleState.None,
                                 { command: 'soloboisSettingsSync.selectGist', title: 'Select Gist', arguments: [g.id] },
-                                new vscode.ThemeIcon(isCurrent ? 'check' : 'gist')
+                                new vscode.ThemeIcon(isCurrent ? 'check' : (g.public ? 'globe' : 'lock'))
                             ));
                         }
                     }

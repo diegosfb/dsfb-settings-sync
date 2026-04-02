@@ -1860,6 +1860,51 @@ async function uploadSettings(
     }
 }
 
+// ─── Diff panel helper ────────────────────────────────────────────────────────
+
+async function openSyncDiffPanels(gistData: GistData): Promise<void> {
+    const filesToDiff: { filename: string; remote: string; local: string }[] = [];
+
+    if (gistData.files['settings.json']) {
+        const remote = gistData.files['settings.json'].content || '{}';
+        const local = settingsManager.readLocalSettings() || '{}';
+        filesToDiff.push({ filename: 'settings.json', remote, local });
+    }
+    if (gistData.files['keybindings.json']) {
+        const remote = gistData.files['keybindings.json'].content || '[]';
+        const local = settingsManager.readLocalKeybindings() || '[]';
+        filesToDiff.push({ filename: 'keybindings.json', remote, local });
+    }
+    if (gistData.files['extensions.json']) {
+        const remote = gistData.files['extensions.json'].content || '[]';
+        const localExtIds = [...getInstalledUserExtensionIds()].map(id => ({ id }));
+        const local = JSON.stringify(localExtIds, null, 2);
+        filesToDiff.push({ filename: 'extensions.json', remote, local });
+    }
+
+    for (const file of filesToDiff) {
+        let remoteFormatted = file.remote;
+        let localFormatted = file.local;
+        try { remoteFormatted = JSON.stringify(JSON.parse(file.remote), null, 2); } catch {}
+        try { localFormatted = JSON.stringify(JSON.parse(file.local), null, 2); } catch {}
+
+        const remotePath = `/remote-${file.filename}`;
+        const localPath = `/local-${file.filename}`;
+        diffDocumentStore.set(remotePath, remoteFormatted);
+        diffDocumentStore.set(localPath, localFormatted);
+
+        const leftUri = vscode.Uri.parse(`soloboi-diff:${remotePath}`).with({ query: Date.now().toString() });
+        const rightUri = vscode.Uri.parse(`soloboi-diff:${localPath}`).with({ query: Date.now().toString() });
+
+        await vscode.commands.executeCommand(
+            'vscode.diff',
+            leftUri, rightUri,
+            `${file.filename}  Remote (Gist) ↔ Local`,
+            { preview: filesToDiff.length === 1 }
+        );
+    }
+}
+
 // ─── 설정 다운로드 (Download Settings) ───────────────────────────────────────────────────────────────────────────
 
 async function downloadSettings(
@@ -1911,10 +1956,9 @@ async function downloadSettings(
         if (!silent && config.get<boolean>('syncPreview', true)) {
             const trustLevel = getGistTrustLevel(gistData, gistId);
             const diff = await computeSyncDiff(gistData, context, gistId, trustLevel);
-            const summary = formatSyncPreviewSummary(diff, gistId, trustLevel);
+            await openSyncDiffPanels(gistData);
             const selection = await vscode.window.showInformationMessage(
-                summary,
-                { modal: true },
+                "Review the diff tabs above, then choose to apply or cancel.",
                 'Apply',
                 'Cancel'
             );
