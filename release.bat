@@ -4,7 +4,7 @@ setlocal
 REM Full release flow:
 REM 1) Ensure clean working tree
 REM 2) Bump version (patch by default)
-REM 3) Ensure CHANGELOG.md has section for that version
+REM 3) Finalize CHANGELOG.md: move [Unreleased] -> [X.Y.Z]
 REM 4) Publish to VS Code Marketplace + Open VSX
 REM 5) Commit + tag vX.Y.Z + push (tag triggers GitHub Release workflow)
 
@@ -29,12 +29,13 @@ if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 for /f %%v in ('node -p "require('./package.json').version"') do set VERSION=%%v
 set TAG=v%VERSION%
 
-findstr /c:"## [%VERSION%]" CHANGELOG.md >nul
+echo Finalizing CHANGELOG.md for %VERSION%...
+for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set RELDATE=%%d
+call node scripts\finalize-changelog.mjs %VERSION% %RELDATE%
 if %ERRORLEVEL% neq 0 (
-  echo Release aborted: CHANGELOG.md does not contain section "## [%VERSION%]".
-  echo Add release notes for %VERSION% and run again.
+  echo Release aborted: failed to finalize CHANGELOG.md (make sure [Unreleased] has notes).
   if "%NO_PAUSE%"=="" pause
-  exit /b 2
+  exit /b %ERRORLEVEL%
 )
 
 git rev-parse "%TAG%" >nul 2>nul

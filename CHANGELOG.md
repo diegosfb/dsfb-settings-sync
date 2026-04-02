@@ -4,6 +4,19 @@ All notable changes to Soloboi's Settings Sync are documented here.
 
 ---
 
+## [Unreleased]
+
+_Add changes for the next release here._
+
+<details>
+<summary>한국어 (요약)</summary>
+
+_다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
+
+</details>
+
+---
+
 ## [1.1.1] - 2026-04-02
 
 ### Added
