@@ -17,6 +17,37 @@ _다음 릴리즈에 포함될 변경사항을 여기에 작성하세요._
 
 ---
 
+## [1.1.2] - 2026-04-03
+
+### Added
+- **Collapsible Sidebar Sections**: The activity bar panel is now organized into collapsible groups — Sync, Gist, Settings, Custom Marketplace, Private Extensions, Filters, Help. Keeps the panel clean and lets you focus on what you need.
+- **Sensitive Data Guard**: Unified masking engine with level-aware redaction (`private` / `public`). Covers 18 key patterns and 7 value patterns (GitHub PAT, AWS key, OpenAI key, Slack token, DB connection strings). Applied to keybindings and snippets on upload.
+- **Marketplace Manager**: Register multiple OpenVSX-compatible marketplaces by domain key. Define fallback scan order — the first marketplace that has the extension wins.
+- **Custom Marketplace Update Checker**: Checks installed extensions against registered custom marketplaces for newer versions (semver). Supports optional auto-update on startup or on-demand via sidebar.
+- **Private Extension Sync MVP**: Register private/unlisted extensions with optional VSIX URL for auto-install, or get local path guidance when no URL is provided. Detected automatically during download for unknown extensions.
+- **Getting Started Wizard**: Step-by-step setup flow for new users (login → gist → first sync).
+- **Separate Log Channel**: Extension activity logs are now in a dedicated channel, keeping the main output panel clean for sync reports.
+
+### Improved
+- **Sync Now tooltip**: Now explains why it differs from doing Upload + Download separately — remote is fetched first to prevent overwriting, and upload is blocked if download fails.
+- **Show History** moved into the Gist section for better discoverability alongside Set Gist ID and Switch Profile.
+- **JSONC parse failure fallback**: If `settings.json` cannot be parsed (e.g. contains syntax errors), sensitive values are still redacted before any content is returned.
+
+<details>
+<summary>한국어 (요약)</summary>
+
+- 사이드바 섹션 접기/펼치기 (Sync / Gist / Settings / 마켓플레이스 / Private / 필터 / Help)
+- 민감정보 통합 마스킹 엔진 (키패턴 18개 + 값패턴 7개, 레벨별 적용)
+- 커스텀 마켓플레이스 도메인 키 레지스트리 + 스캔 순서 관리
+- 커스텀 마켓 업데이트 확인 + VSIX 자동 설치
+- Private 익스텐션 등록 + 다운로드 시 자동 감지/안내
+- Getting Started 마법사, 별도 로그 채널 분리
+- Sync Now 동작 설명 툴팁 개선, Show History 위치 이동
+
+</details>
+
+---
+
 ## [1.1.1] - 2026-04-02
 
 ### Added
