@@ -2213,6 +2213,8 @@ async function uploadSettings(
             const existingStatusBar = currentGist?.files?.['status-bar.json']?.content;
             if (existingStatusBar) {
                 baseFiles['status-bar.json'] = { content: existingStatusBar };
+            } else {
+                baseFiles['status-bar.json'] = { content: '{}' };
             }
         }
         const files = withSyncMetadataFiles(baseFiles, currentGist?.files);
