@@ -6,7 +6,7 @@ import * as path from "path";
  * [프로토타입] VS Code 마켓플레이스 페이지를 헤드리스 Playwright로 자동 스크린샷 촬영한다.
  *
  * 사용법:
- *   1. captureMarketplaceScreenshot({ extensionId: 'soloboi.solobois-settings-sync', outputPath: 'screenshots/marketplace.png' }) 호출.
+ *   1. captureMarketplaceScreenshot({ extensionId: 'diegosfb.dsfb-settings-sync', outputPath: 'screenshots/marketplace.png' }) 호출.
  *   2. outputPath에 전체 페이지 PNG 파일이 저장된다.
  *   3. publish.bat 등 배포 파이프라인에 연결하면 마켓플레이스 이미지를 배포 때마다 자동 갱신 가능.
  *

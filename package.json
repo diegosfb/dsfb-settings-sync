@@ -1,21 +1,21 @@
 {
-  "name": "solobois-settings-sync",
-  "displayName": "Soloboi's Settings Sync",
+  "name": "dsfb-settings-sync",
+  "displayName": "DSFB Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "1.1.8",
-  "publisher": "soloboi",
+  "version": "0.1.0",
+  "publisher": "diegosfb",
   "engines": {
     "vscode": "^1.90.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mingjae1/solobois-settings-sync"
+    "url": "https://github.com/diegosfb/dsfb-settings-sync"
   },
-  "homepage": "https://github.com/mingjae1/solobois-settings-sync#readme",
+  "homepage": "https://github.com/diegosfb/dsfb-settings-sync#readme",
   "bugs": {
-    "url": "https://github.com/mingjae1/solobois-settings-sync/issues"
+    "url": "https://github.com/diegosfb/dsfb-settings-sync/issues"
   },
-  "gitlab": "https://gitlab.com/soloboi/solobois-settings-sync",
+  "gitlab": "https://gitlab.com/diegosfb/dsfb-settings-sync",
   "keywords": [
     "antigravity",
     "settings-sync",
@@ -34,149 +34,149 @@
   "contributes": {
     "commands": [
       {
-        "command": "soloboisSettingsSync.login",
-        "title": "Soloboi's Settings Sync: Login to GitHub"
+        "command": "dsfbSettingsSync.login",
+        "title": "DSFB Settings Sync: Login to GitHub"
       },
       {
-        "command": "soloboisSettingsSync.logout",
-        "title": "Soloboi's Settings Sync: Logout from GitHub"
+        "command": "dsfbSettingsSync.logout",
+        "title": "DSFB Settings Sync: Logout from GitHub"
       },
       {
-        "command": "soloboisSettingsSync.syncNow",
-        "title": "Soloboi's Settings Sync: Sync Now (Upload & Download)"
+        "command": "dsfbSettingsSync.syncNow",
+        "title": "DSFB Settings Sync: Sync Now (Upload & Download)"
       },
       {
-        "command": "soloboisSettingsSync.uploadNow",
-        "title": "Soloboi's Settings Sync: Upload Settings to Gist"
+        "command": "dsfbSettingsSync.uploadNow",
+        "title": "DSFB Settings Sync: Upload Settings to Gist"
       },
       {
-        "command": "soloboisSettingsSync.downloadNow",
-        "title": "Soloboi's Settings Sync: Download Settings from Gist"
+        "command": "dsfbSettingsSync.downloadNow",
+        "title": "DSFB Settings Sync: Download Settings from Gist"
       },
       {
-        "command": "soloboisSettingsSync.showHistory",
-        "title": "Soloboi's Settings Sync: Show Gist History"
+        "command": "dsfbSettingsSync.showHistory",
+        "title": "DSFB Settings Sync: Show Gist History"
       },
       {
-        "command": "soloboisSettingsSync.setGistId",
-        "title": "Soloboi's Settings Sync: Set Gist ID"
+        "command": "dsfbSettingsSync.setGistId",
+        "title": "DSFB Settings Sync: Set Gist ID"
       },
       {
-        "command": "soloboisSettingsSync.switchProfile",
-        "title": "Soloboi's Settings Sync: Switch Profile"
+        "command": "dsfbSettingsSync.switchProfile",
+        "title": "DSFB Settings Sync: Switch Profile"
       },
       {
-        "command": "soloboisSettingsSync.configureIgnoredExtensions",
-        "title": "Soloboi's Settings Sync: Manage Ignored Extensions"
+        "command": "dsfbSettingsSync.configureIgnoredExtensions",
+        "title": "DSFB Settings Sync: Manage Ignored Extensions"
       },
       {
-        "command": "soloboisSettingsSync.configureIgnoredSettings",
-        "title": "Soloboi's Settings Sync: Manage Ignored Settings"
+        "command": "dsfbSettingsSync.configureIgnoredSettings",
+        "title": "DSFB Settings Sync: Manage Ignored Settings"
       },
       {
-        "command": "soloboisSettingsSync.checkExtensionHealth",
+        "command": "dsfbSettingsSync.checkExtensionHealth",
         "title": "익스텐션 마켓플레이스 헬스체크",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.runSettingsE2ETest",
+        "command": "dsfbSettingsSync.runSettingsE2ETest",
         "title": "설정 E2E 테스트 실행",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.setCustomMarketplaceUrl",
+        "command": "dsfbSettingsSync.setCustomMarketplaceUrl",
         "title": "Custom Marketplace URL 설정",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.togglePublicGist",
+        "command": "dsfbSettingsSync.togglePublicGist",
         "title": "Public Gist 토글 (공개/비공개)",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.showLocalVsRemoteDiff",
+        "command": "dsfbSettingsSync.showLocalVsRemoteDiff",
         "title": "로컬 vs 원격 설정 Diff 보기",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.addMarketplace",
+        "command": "dsfbSettingsSync.addMarketplace",
         "title": "마켓플레이스 추가",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.removeMarketplace",
+        "command": "dsfbSettingsSync.removeMarketplace",
         "title": "마켓플레이스 제거",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.reorderMarketplace",
+        "command": "dsfbSettingsSync.reorderMarketplace",
         "title": "마켓플레이스 스캔 순서 변경",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.toggleCustomMarketplaceAutoUpdate",
+        "command": "dsfbSettingsSync.toggleCustomMarketplaceAutoUpdate",
         "title": "커스텀 마켓 자동 업데이트 토글",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.checkCustomMarketplaceUpdates",
+        "command": "dsfbSettingsSync.checkCustomMarketplaceUpdates",
         "title": "커스텀 마켓 업데이트 확인",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.registerPrivateExtension",
+        "command": "dsfbSettingsSync.registerPrivateExtension",
         "title": "사설 익스텐션 등록",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.removePrivateExtension",
+        "command": "dsfbSettingsSync.removePrivateExtension",
         "title": "사설 익스텐션 제거",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.shareSettings",
+        "command": "dsfbSettingsSync.shareSettings",
         "title": "설정 공유 (Share Your Settings)",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.openSettings",
+        "command": "dsfbSettingsSync.openSettings",
         "title": "설정 열기",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.openRepository",
+        "command": "dsfbSettingsSync.openRepository",
         "title": "GitHub 저장소 열기",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.reportIssue",
+        "command": "dsfbSettingsSync.reportIssue",
         "title": "이슈/버그 신고",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.showLog",
+        "command": "dsfbSettingsSync.showLog",
         "title": "로그 보기",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       },
       {
-        "command": "soloboisSettingsSync.getStarted",
+        "command": "dsfbSettingsSync.getStarted",
         "title": "Getting Started",
-        "category": "Soloboi Sync"
+        "category": "DSFB Sync"
       }
     ],
     "keybindings": [
       {
-        "command": "soloboisSettingsSync.syncNow",
+        "command": "dsfbSettingsSync.syncNow",
         "key": "shift+alt+s",
         "mac": "shift+cmd+s"
       },
       {
-        "command": "soloboisSettingsSync.uploadNow",
+        "command": "dsfbSettingsSync.uploadNow",
         "key": "shift+alt+u",
         "mac": "shift+cmd+u"
       },
       {
-        "command": "soloboisSettingsSync.downloadNow",
+        "command": "dsfbSettingsSync.downloadNow",
         "key": "shift+alt+d",
         "mac": "shift+cmd+d"
       }
@@ -184,60 +184,60 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "soloboi-sync-explorer",
-          "title": "Soloboi's Settings Sync",
+          "id": "dsfb-sync-explorer",
+          "title": "DSFB Settings Sync",
           "icon": "$(sync)"
         }
       ]
     },
     "views": {
-      "soloboi-sync-explorer": [
+      "dsfb-sync-explorer": [
         {
-          "id": "soloboisSettingsSync.treeView",
+          "id": "dsfbSettingsSync.treeView",
           "name": "Actions",
           "icon": "$(sync)"
         }
       ]
     },
     "configuration": {
-      "title": "Soloboi's Settings Sync",
+      "title": "DSFB Settings Sync",
       "properties": {
-        "soloboisSettingsSync.gistId": {
+        "dsfbSettingsSync.gistId": {
           "type": "string",
           "default": "",
           "description": "GitHub Gist ID for settings sync. Leave empty to auto-create on first upload."
         },
-        "soloboisSettingsSync.autoSyncOnStartup": {
+        "dsfbSettingsSync.autoSyncOnStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically download and apply settings from Gist on startup. Requires soloboisSettingsSync.autoSync=true."
+          "description": "Automatically download and apply settings from Gist on startup. Requires dsfbSettingsSync.autoSync=true."
         },
-        "soloboisSettingsSync.autoSync": {
+        "dsfbSettingsSync.autoSync": {
           "type": "boolean",
           "default": false,
           "description": "Master toggle for automatic sync behavior. When false, startup sync and auto-upload file watchers are disabled (manual commands still work)."
         },
-        "soloboisSettingsSync.autoUploadOnChange": {
+        "dsfbSettingsSync.autoUploadOnChange": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically upload settings to Gist when local files change. Requires soloboisSettingsSync.autoSync=true."
+          "description": "Automatically upload settings to Gist when local files change. Requires dsfbSettingsSync.autoSync=true."
         },
-        "soloboisSettingsSync.autoUploadDelay": {
+        "dsfbSettingsSync.autoUploadDelay": {
           "type": "number",
           "default": 5000,
           "description": "Delay in milliseconds before auto-uploading after a change is detected."
         },
-        "soloboisSettingsSync.syncPreview": {
+        "dsfbSettingsSync.syncPreview": {
           "type": "boolean",
           "default": true,
           "description": "Show a sync preview (diff summary) before applying downloaded changes."
         },
-        "soloboisSettingsSync.confirmExtensionSync": {
+        "dsfbSettingsSync.confirmExtensionSync": {
           "type": "boolean",
           "default": true,
           "description": "Ask for confirmation before installing or uninstalling extensions during download."
         },
-        "soloboisSettingsSync.gistTrust": {
+        "dsfbSettingsSync.gistTrust": {
           "type": "object",
           "default": {},
           "description": "Per-Gist trust setting. Untrusted gists block extension install/uninstall during download. Example: { \"<gistId>\": \"trusted\" }",
@@ -249,7 +249,7 @@
             ]
           }
         },
-        "soloboisSettingsSync.ignoredSettings": {
+        "dsfbSettingsSync.ignoredSettings": {
           "type": "array",
           "default": [
             "*token*",
@@ -263,47 +263,47 @@
             "type": "string"
           }
         },
-        "soloboisSettingsSync.removeExtensions": {
+        "dsfbSettingsSync.removeExtensions": {
           "type": "boolean",
           "default": false,
           "description": "Automatically uninstall local extensions that are not in the remote list."
         },
-        "soloboisSettingsSync.publicGist": {
+        "dsfbSettingsSync.publicGist": {
           "type": "boolean",
           "default": false,
           "description": "Create new sync Gists as Public (visible to anyone). Defaults to Private for security."
         },
-        "soloboisSettingsSync.syncSettings": {
+        "dsfbSettingsSync.syncSettings": {
           "type": "boolean",
           "default": true,
           "description": "Sync VS Code settings (settings.json)."
         },
-        "soloboisSettingsSync.authoritativeDownload": {
+        "dsfbSettingsSync.authoritativeDownload": {
           "type": "boolean",
           "default": false,
           "description": "원격 settings.json을 authoritative하게 적용할지 여부입니다. false면 기존 deep merge를 유지하고, true면 동기화 대상 키는 원격값으로 그대로 덮어써서 원격에서 삭제된 키도 로컬에서 제거합니다."
         },
-        "soloboisSettingsSync.syncExtensions": {
+        "dsfbSettingsSync.syncExtensions": {
           "type": "boolean",
           "default": true,
           "description": "Sync installed extensions list."
         },
-        "soloboisSettingsSync.syncKeybindings": {
+        "dsfbSettingsSync.syncKeybindings": {
           "type": "boolean",
           "default": true,
           "description": "Sync keyboard shortcuts (keybindings.json)."
         },
-        "soloboisSettingsSync.syncSnippets": {
+        "dsfbSettingsSync.syncSnippets": {
           "type": "boolean",
           "default": true,
           "description": "Sync user snippets."
         },
-        "soloboisSettingsSync.syncAntigravityConfig": {
+        "dsfbSettingsSync.syncAntigravityConfig": {
           "type": "boolean",
           "default": true,
           "description": "Sync Antigravity-only config files (antigravity.json, browserAllowlist.txt). If not explicitly set, runtime default follows platform: true on Antigravity, false on VS Code."
         },
-        "soloboisSettingsSync.ignoredExtensions": {
+        "dsfbSettingsSync.ignoredExtensions": {
           "type": "array",
           "default": [],
           "description": "List of extension IDs to ignore during sync. Example: [\"ms-vscode.cpptools\"]",
@@ -311,22 +311,22 @@
             "type": "string"
           }
         },
-        "soloboisSettingsSync.profiles": {
+        "dsfbSettingsSync.profiles": {
           "type": "object",
           "default": {},
           "description": "Stored sync profiles by name. Each profile stores gistId, ignoredSettings, and ignoredExtensions."
         },
-        "soloboisSettingsSync.currentProfile": {
+        "dsfbSettingsSync.currentProfile": {
           "type": "string",
           "default": "Default",
           "description": "The name of the currently active sync profile."
         },
-        "soloboisSettingsSync.customMarketplaceUrl": {
+        "dsfbSettingsSync.customMarketplaceUrl": {
           "type": "string",
           "default": "",
           "description": "Custom marketplace base URL (OpenVSX-compatible REST API). Used as fallback when extension status is unknown in the primary marketplace. Example: https://my-marketplace.example.com"
         },
-        "soloboisSettingsSync.marketplaceRegistry": {
+        "dsfbSettingsSync.marketplaceRegistry": {
           "type": "object",
           "default": {},
           "description": "Custom marketplace registry. Maps domain key (e.g. 'open-vsx.org') to base URL. Example: { \"my-market.example.com\": \"https://my-market.example.com\" }",
@@ -334,7 +334,7 @@
             "type": "string"
           }
         },
-        "soloboisSettingsSync.marketplaceScanOrder": {
+        "dsfbSettingsSync.marketplaceScanOrder": {
           "type": "array",
           "default": [],
           "description": "Domain keys defining the scan order for marketplace fallback. Earlier entries are checked first.",
@@ -342,12 +342,12 @@
             "type": "string"
           }
         },
-        "soloboisSettingsSync.customMarketplaceAutoUpdate": {
+        "dsfbSettingsSync.customMarketplaceAutoUpdate": {
           "type": "boolean",
           "default": false,
           "description": "Automatically install updates found in custom marketplaces without prompting."
         },
-        "soloboisSettingsSync.customMarketplaceUpdateCheck": {
+        "dsfbSettingsSync.customMarketplaceUpdateCheck": {
           "type": "string",
           "enum": [
             "startup",
@@ -356,7 +356,7 @@
           "default": "disabled",
           "description": "When to check for updates from custom marketplaces. 'startup' checks on activation, 'disabled' disables automatic checks."
         },
-        "soloboisSettingsSync.privateExtensions": {
+        "dsfbSettingsSync.privateExtensions": {
           "type": "array",
           "default": [],
           "description": "List of private/unlisted extensions for sync guidance. Each entry has id, version, optional vsixUrl, localPath, and note.",

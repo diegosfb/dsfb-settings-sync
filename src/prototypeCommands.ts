@@ -26,13 +26,13 @@ export function registerPrototypeCommands(
     dependencies: PrototypeCommandDependencies
 ): void {
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.checkExtensionHealth', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.checkExtensionHealth', async () => {
             await runCheckExtensionHealthCommand(dependencies);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.runSettingsE2ETest', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.runSettingsE2ETest', async () => {
             await runSettingsE2ETestCommand(dependencies);
         })
     );
@@ -111,7 +111,7 @@ async function runCheckExtensionHealthCommand(
             return;
         }
 
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const gistId = (config.get<string>('gistId', '') || '').trim();
         if (!gistId) {
             vscode.window.showErrorMessage('Gist ID가 설정되어 있지 않습니다.');

@@ -60,29 +60,34 @@ export async function checkMarketplaceForPlatform(
     platform: Platform,
     customMarketplaceUrl?: string
 ): Promise<Map<string, ExtensionAvailability>> {
-    let result: Map<string, ExtensionAvailability>;
+    const normalizedIds = normalizeIds(ids);
+    let result = new Map<string, ExtensionAvailability>();
 
     if (platform === 'antigravity') {
-        result = await checkOpenVSX(ids);
+        result = await checkOpenVSX(normalizedIds);
+        await mergeAvailability(result, await checkVSCodeMarketplace(getFallbackIds(result)), true);
     } else if (platform === 'vscode') {
-        result = await checkVSCodeMarketplace(ids);
+        result = await checkVSCodeMarketplace(normalizedIds);
+        await mergeAvailability(result, await checkOpenVSX(getFallbackIds(result)), true);
     } else {
-        result = new Map<string, ExtensionAvailability>();
-        for (const id of normalizeIds(ids)) {
+        for (const id of normalizedIds) {
             result.set(id, 'unknown');
         }
+        await mergeAvailability(result, await checkVSCodeMarketplace(normalizedIds), false);
+        await mergeAvailability(result, await checkOpenVSX(getFallbackIds(result)), false);
     }
 
-    // Retry unknowns with custom marketplace fallback
+    // Retry anything not already available with the custom marketplace fallback.
     if (customMarketplaceUrl && customMarketplaceUrl.trim()) {
         const unknownIds = [...result.entries()]
-            .filter(([, v]) => v === 'unknown')
+            .filter(([, v]) => v !== 'available')
             .map(([id]) => id);
 
         if (unknownIds.length > 0) {
             const customResult = await checkCustomMarketplace(unknownIds, customMarketplaceUrl.trim());
             for (const [id, status] of customResult) {
-                if (status !== 'unknown') {
+                const currentStatus = result.get(id) ?? 'unknown';
+                if (status === 'available' || (currentStatus === 'unknown' && status === 'unavailable')) {
                     result.set(id, status);
                 }
             }
@@ -90,6 +95,29 @@ export async function checkMarketplaceForPlatform(
     }
 
     return result;
+}
+
+function getFallbackIds(result: Map<string, ExtensionAvailability>): string[] {
+    return [...result.entries()]
+        .filter(([, status]) => status !== 'available')
+        .map(([id]) => id);
+}
+
+async function mergeAvailability(
+    target: Map<string, ExtensionAvailability>,
+    fallback: Map<string, ExtensionAvailability>,
+    preferAvailableOnly: boolean
+): Promise<void> {
+    for (const [id, status] of fallback) {
+        const currentStatus = target.get(id) ?? 'unknown';
+        if (status === 'available') {
+            target.set(id, status);
+            continue;
+        }
+        if (!preferAvailableOnly && currentStatus === 'unknown' && status === 'unavailable') {
+            target.set(id, status);
+        }
+    }
 }
 
 export async function checkCustomMarketplace(ids: string[], baseUrl: string): Promise<Map<string, ExtensionAvailability>> {
@@ -123,6 +151,9 @@ async function checkOneCustomMarketplace(id: string, baseUrl: string): Promise<E
         if (!parsed.hostname || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
             return 'unknown';
         }
+        if (isVSCodeMarketplaceHost(parsed.hostname)) {
+            return await checkOneVSCodeMarketplace(id, parsed);
+        }
 
         const res = await request({
             hostname: parsed.hostname,
@@ -130,18 +161,24 @@ async function checkOneCustomMarketplace(id: string, baseUrl: string): Promise<E
             method: 'GET',
             path: parsed.pathname.replace(/\/$/, '') + urlPath,
             headers: {
-                'User-Agent': 'Solobois-Settings-Sync',
+                'User-Agent': 'DSFB-Settings-Sync',
                 'Accept': 'application/json'
-            }
-        });
+            },
+            __useHttp: parsed.protocol === 'http:'
+        } as https.RequestOptions & { __useHttp?: boolean });
 
         if (res.statusCode === 200) { return 'available'; }
         if (res.statusCode === 404) { return 'unavailable'; }
         return 'unknown';
     } catch (err: any) {
-        console.warn(`Soloboi's Settings Sync: Custom marketplace check failed for ${id}:`, err?.message || err);
+        console.warn(`DSFB Settings Sync: Custom marketplace check failed for ${id}:`, err?.message || err);
         return 'unknown';
     }
+}
+
+function isVSCodeMarketplaceHost(hostname: string): boolean {
+    const normalized = (hostname || '').toLowerCase();
+    return normalized === 'marketplace.visualstudio.com';
 }
 
 function normalizeIds(ids: string[]): string[] {
@@ -184,7 +221,7 @@ async function checkOneOpenVSX(id: string): Promise<ExtensionAvailability> {
             method: 'GET',
             path,
             headers: {
-                'User-Agent': 'Solobois-Settings-Sync',
+                'User-Agent': 'DSFB-Settings-Sync',
                 'Accept': 'application/json'
             }
         });
@@ -201,7 +238,7 @@ async function checkOneOpenVSX(id: string): Promise<ExtensionAvailability> {
     }
 }
 
-async function checkOneVSCodeMarketplace(id: string): Promise<ExtensionAvailability> {
+async function checkOneVSCodeMarketplace(id: string, baseUrl?: URL): Promise<ExtensionAvailability> {
     const body = JSON.stringify({
         filters: [
             {
@@ -219,17 +256,24 @@ async function checkOneVSCodeMarketplace(id: string): Promise<ExtensionAvailabil
     });
 
     try {
+        const hostname = baseUrl?.hostname || 'marketplace.visualstudio.com';
+        const port = baseUrl?.port && !isNaN(parseInt(baseUrl.port, 10))
+            ? parseInt(baseUrl.port, 10)
+            : undefined;
+        const basePath = baseUrl?.pathname ? baseUrl.pathname.replace(/\/$/, '') : '';
         const res = await request({
-            hostname: 'marketplace.visualstudio.com',
+            hostname,
+            port,
             method: 'POST',
-            path: '/_apis/public/gallery/extensionquery',
+            path: `${basePath}/_apis/public/gallery/extensionquery`,
             headers: {
-                'User-Agent': 'Solobois-Settings-Sync',
+                'User-Agent': 'DSFB-Settings-Sync',
                 'Accept': 'application/json;api-version=3.0-preview.1',
                 'Content-Type': 'application/json',
                 'Content-Length': Buffer.byteLength(body).toString()
-            }
-        }, body, VS_MARKETPLACE_TIMEOUT_MS);
+            },
+            __useHttp: baseUrl?.protocol === 'http:'
+        } as https.RequestOptions & { __useHttp?: boolean }, body, VS_MARKETPLACE_TIMEOUT_MS);
 
         if (!res.body) {
             return 'unknown';

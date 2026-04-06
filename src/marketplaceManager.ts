@@ -23,7 +23,7 @@ export class MarketplaceManager {
      * Entries not in the order list are appended at the end.
      */
     getOrderedMarketplaces(): MarketplaceEntry[] {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const registry = config.get<Record<string, string>>('marketplaceRegistry', {});
         const order = config.get<string[]>('marketplaceScanOrder', []);
 
@@ -36,23 +36,23 @@ export class MarketplaceManager {
     }
 
     getRegistry(): Record<string, string> {
-        return vscode.workspace.getConfiguration('soloboisSettingsSync')
+        return vscode.workspace.getConfiguration('dsfbSettingsSync')
             .get<Record<string, string>>('marketplaceRegistry', {});
     }
 
     getScanOrder(): string[] {
-        return vscode.workspace.getConfiguration('soloboisSettingsSync')
+        return vscode.workspace.getConfiguration('dsfbSettingsSync')
             .get<string[]>('marketplaceScanOrder', []);
     }
 
     async addMarketplace(url: string): Promise<{ domain: string } | undefined> {
         const domain = extractDomainKey(url);
         if (!domain) {
-            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Invalid marketplace URL — "${url}"`);
+            vscode.window.showErrorMessage(`DSFB Settings Sync: Invalid marketplace URL — "${url}"`);
             return undefined;
         }
 
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const registry = { ...config.get<Record<string, string>>('marketplaceRegistry', {}) };
         registry[domain] = url.replace(/\/$/, '');
 
@@ -68,7 +68,7 @@ export class MarketplaceManager {
     }
 
     async removeMarketplace(domain: string): Promise<void> {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const registry = { ...config.get<Record<string, string>>('marketplaceRegistry', {}) };
         delete registry[domain];
 
@@ -79,7 +79,7 @@ export class MarketplaceManager {
     }
 
     async reorderMarketplace(newOrder: string[]): Promise<void> {
-        await vscode.workspace.getConfiguration('soloboisSettingsSync')
+        await vscode.workspace.getConfiguration('dsfbSettingsSync')
             .update('marketplaceScanOrder', newOrder, vscode.ConfigurationTarget.Global);
     }
 

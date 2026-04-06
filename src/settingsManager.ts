@@ -41,7 +41,7 @@ export class SettingsManager {
      * Get ignored extension IDs from configuration (normalized lowercase).
      */
     private getIgnoredExtensionIds(): Set<string> {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const ignored = config.get<string[]>('ignoredExtensions', []);
         return new Set(
             ignored
@@ -530,7 +530,7 @@ export class SettingsManager {
             localObj = this.parseJsonc(localContent) ?? {};
         }
 
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const authoritativeDownload = config.get<boolean>('authoritativeDownload', false);
         const nextSettings = authoritativeDownload
             ? this.preserveIgnoredLocalSettings(localObj, remoteObj, ignored)
@@ -611,7 +611,7 @@ export class SettingsManager {
             this.writeFileIfChanged(resolvedFilePath, content);
         }
 
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         if (!config.get<boolean>('authoritativeDownload', false)) {
             return;
         }
@@ -670,7 +670,7 @@ export class SettingsManager {
      * Returns the count of removed extensions.
      */
     async uninstallExtraExtensions(remoteExtensionsJson: string): Promise<number> {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         if (!config.get<boolean>('removeExtensions', false)) {
             return 0;
         }
@@ -691,7 +691,7 @@ export class SettingsManager {
 
             const id = ext.id.toLowerCase();
             // Do not uninstall ourselves
-            if (id === 'soloboi.solobois-settings-sync') continue;
+            if (id === 'diegosfb.dsfb-settings-sync') continue;
             // Ignore list means "do not manage"
             if (ignoredIds.has(id)) continue;
 
@@ -816,7 +816,7 @@ export class SettingsManager {
      * Get ignored patterns from configuration.
      */
     private getIgnoredPatterns(): string[] {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         return config.get<string[]>('ignoredSettings', []);
     }
 
@@ -992,7 +992,7 @@ export class SettingsManager {
         const normalizedFilename = sanitizedFilename.toLowerCase();
 
         if (filename.includes('..') || sanitizedFilename.includes('..')) {
-            console.warn(`Soloboi's Settings Sync: Skipping suspicious snippet filename "${filename}"`);
+            console.warn(`DSFB Settings Sync: Skipping suspicious snippet filename "${filename}"`);
             return null;
         }
 
@@ -1002,7 +1002,7 @@ export class SettingsManager {
 
         const resolvedFilePath = path.resolve(path.join(snippetsDir, sanitizedFilename));
         if (!this.normalizePathForComparison(resolvedFilePath).startsWith(snippetsDirPrefix)) {
-            console.warn(`Soloboi's Settings Sync: Skipping out-of-bounds snippet filename "${filename}"`);
+            console.warn(`DSFB Settings Sync: Skipping out-of-bounds snippet filename "${filename}"`);
             return null;
         }
 

@@ -1,6 +1,6 @@
 ﻿# Changelog
 
-All notable changes to Soloboi's Settings Sync are documented here.
+All notable changes to DSFB Settings Sync are documented here.
 
 ---
 
@@ -31,10 +31,10 @@ _Add changes for the next release here._
 ### Added
 - **Smart Extension Removal**: Uninstalling an extension now automatically prevents it from being reinstalled on the next sync. No extra steps needed — the extension tracks your intent silently.
 - **Auto-ignore on Uninstall**: When an extension is removed, its contributed settings keys are automatically added to `ignoredSettings` so they no longer pollute synced configurations.
-- **Marketplace Health Check** (`soloboisSettingsSync.checkExtensionHealth`): Scans all extensions in your sync list against the VS Code Marketplace and reports any that are missing or deprecated.
-- **Settings E2E Test** (`soloboisSettingsSync.runSettingsE2ETest`): Launches an isolated VS Code instance with your current settings to detect errors before they reach other devices.
+- **Marketplace Health Check** (`dsfbSettingsSync.checkExtensionHealth`): Scans all extensions in your sync list against the VS Code Marketplace and reports any that are missing or deprecated.
+- **Settings E2E Test** (`dsfbSettingsSync.runSettingsE2ETest`): Launches an isolated VS Code instance with your current settings to detect errors before they reach other devices.
 - **Conflict-Safe Startup Sync**: On startup, if local changes are newer than the remote Gist, local state is uploaded first instead of being overwritten.
-- **Authoritative Download Mode** (`soloboisSettingsSync.authoritativeDownload`): When enabled, remote settings are applied as the strict source of truth — local keys absent in the remote are removed.
+- **Authoritative Download Mode** (`dsfbSettingsSync.authoritativeDownload`): When enabled, remote settings are applied as the strict source of truth — local keys absent in the remote are removed.
 - **Default Secret Key Filters**: `ignoredSettings` now ships with common secret-key patterns (`*token*`, `*secret*`, `*password*`, `*apikey*`, `*api_key*`) to prevent accidental credential sync.
 
 ### Improved

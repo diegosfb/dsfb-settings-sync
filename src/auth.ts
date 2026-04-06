@@ -5,9 +5,9 @@ import { pollGitHubDeviceAuthorization } from './prototypes/playwrightAuthHelper
 const AUTH_PROVIDER_ID = 'github';
 const SCOPES = ['gist'];
 const DEVICE_CODE_CLIENT_ID_ENV_KEYS = ['GITHUB_DEVICE_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_ID'];
-const FALLBACK_TOKEN_KEY = 'soloboisSettingsSync.deviceCodeToken';
-const FALLBACK_ACCOUNT_LABEL_KEY = 'soloboisSettingsSync.deviceCodeAccountLabel';
-const FALLBACK_ACCOUNT_ID_KEY = 'soloboisSettingsSync.deviceCodeAccountId';
+const FALLBACK_TOKEN_KEY = 'dsfbSettingsSync.deviceCodeToken';
+const FALLBACK_ACCOUNT_LABEL_KEY = 'dsfbSettingsSync.deviceCodeAccountLabel';
+const FALLBACK_ACCOUNT_ID_KEY = 'dsfbSettingsSync.deviceCodeAccountId';
 
 type GitHubDeviceCodeResponse = {
   device_code?: string;
@@ -58,7 +58,7 @@ export class AuthManager {
     this.onDidChangeEmitter.fire(this.session);
     if (this.session) {
       vscode.window.showInformationMessage(
-        `Soloboi's Settings Sync: GitHub??濡쒓렇?몃릺?덉뒿?덈떎. (${this.session.account.label})`,
+        `DSFB Settings Sync: GitHub??濡쒓렇?몃릺?덉뒿?덈떎. (${this.session.account.label})`,
       );
     }
     return this.session;
@@ -123,7 +123,7 @@ export class AuthManager {
     const clientId = this.getDeviceCodeClientId();
     if (!clientId) {
       vscode.window.showErrorMessage(
-        `Soloboi's Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${originalError.message}`,
+        `DSFB Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${originalError.message}`,
       );
       return null;
     }
@@ -174,7 +174,7 @@ export class AuthManager {
       return session;
     } catch (err: any) {
       vscode.window.showErrorMessage(
-        `Soloboi's Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${err.message}`,
+        `DSFB Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${err.message}`,
       );
       return null;
     }

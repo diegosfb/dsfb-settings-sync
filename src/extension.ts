@@ -9,23 +9,25 @@ import { GistData, GistService } from './gistService';
 import { SettingsManager } from './settingsManager';
 import { SoloboiSyncTreeProvider } from './treeProvider';
 import { detectPlatform, Platform } from './platformDetector';
-import { checkMarketplaceForPlatform, ExtensionAvailability, checkCustomMarketplaceUpdates, ExtensionUpdateInfo } from './marketplaceChecker';
+import { checkMarketplaceForPlatform, ExtensionAvailability, checkCustomMarketplaceUpdates, ExtensionUpdateInfo, fetchVersionList } from './marketplaceChecker';
 import { marketplaceManager } from './marketplaceManager';
 import { registerPrototypeCommands } from './prototypeCommands';
 import { sensitiveDataGuard } from './sensitiveDataGuard';
 
-const GIST_DESCRIPTION_PREFIX = "Soloboi's Settings Sync - ";
-const GIST_DEFAULT_DESCRIPTION = "Soloboi's Settings Sync - VS Code Settings"; // Used for initial creation
-const LAST_SYNC_KEY = 'soloboisSettingsSync.lastSyncTimestamp';
-const LOCAL_STATE_TIMESTAMP_KEY = 'soloboisSettingsSync.localStateTimestamp';
-const PENDING_UPLOAD_KEY = 'soloboisSettingsSync.pendingUpload';
-const INTENTIONALLY_REMOVED_KEY = 'soloboisSettingsSync.intentionallyRemovedExtensions';
+const GIST_DESCRIPTION_PREFIX = "DSFB Settings Sync - ";
+const GIST_DEFAULT_DESCRIPTION = "DSFB Settings Sync - VS Code Settings"; // Used for initial creation
+const LAST_SYNC_KEY = 'dsfbSettingsSync.lastSyncTimestamp';
+const LOCAL_STATE_TIMESTAMP_KEY = 'dsfbSettingsSync.localStateTimestamp';
+const PENDING_UPLOAD_KEY = 'dsfbSettingsSync.pendingUpload';
+const INTENTIONALLY_REMOVED_KEY = 'dsfbSettingsSync.intentionallyRemovedExtensions';
+const LAST_USED_GIST_ID_KEY = 'dsfbSettingsSync.lastUsedGistId';
+const LAST_ACTION_LOG_FILENAME = 'lastactionlog.txt';
 const DEFAULT_PROFILE_NAME = 'Default';
 
 let authManager: AuthManager;
 let gistService: GistService;
 
-/** Content store for virtual diff documents (soloboi-diff: scheme). */
+/** Content store for virtual diff documents (dsfb-diff: scheme). */
 const diffDocumentStore = new Map<string, string>();
 let settingsManager: SettingsManager;
 let fileWatcher: vscode.FileSystemWatcher | undefined;
@@ -39,6 +41,8 @@ let outputChannel: vscode.OutputChannel;
 let logChannel: vscode.OutputChannel;
 let lastSyncTime: string | null = null;
 let currentPlatform: Platform = 'unknown';
+let trackedOutputLines: string[] = [];
+let trackedLogLines: string[] = [];
 
 const AUTO_UPLOAD_SUPPRESSION_BUFFER_MS = 1500;
 const EXTENSION_CHANGE_UPLOAD_DELAY_MS = 750;
@@ -126,6 +130,110 @@ function logError(message: string, err?: unknown): void {
     logLine('ERROR', message, err);
 }
 
+function showSyncChannels(): void {
+    try {
+        outputChannel?.show(true);
+        logChannel?.show(true);
+    } catch {
+        // ignore channel display failures
+    }
+}
+
+function trimTrackedLines(lines: string[], maxLines: number = 2000): void {
+    if (lines.length > maxLines) {
+        lines.splice(0, lines.length - maxLines);
+    }
+}
+
+function trackOutputChannel(channel: vscode.OutputChannel, lines: string[], trackClear: boolean = false): void {
+    const originalAppendLine = channel.appendLine.bind(channel);
+    channel.appendLine = (value: string) => {
+        lines.push(String(value ?? ''));
+        trimTrackedLines(lines);
+        return originalAppendLine(value);
+    };
+
+    if (trackClear && typeof channel.clear === 'function') {
+        const originalClear = channel.clear.bind(channel);
+        channel.clear = () => {
+            lines.length = 0;
+            return originalClear();
+        };
+    }
+}
+
+function getLastUsedGistId(context: vscode.ExtensionContext): string {
+    const stored = context.globalState.get<string>(LAST_USED_GIST_ID_KEY, '');
+    return typeof stored === 'string' ? stored.trim() : '';
+}
+
+async function rememberLastUsedGistId(context: vscode.ExtensionContext, gistId: string): Promise<void> {
+    const normalized = typeof gistId === 'string' ? gistId.trim() : '';
+    if (!normalized) {
+        return;
+    }
+    if (getLastUsedGistId(context) !== normalized) {
+        await context.globalState.update(LAST_USED_GIST_ID_KEY, normalized);
+    }
+}
+
+async function getEffectiveGistId(
+    context: vscode.ExtensionContext,
+    config: vscode.WorkspaceConfiguration
+): Promise<string> {
+    const configured = (config.get<string>('gistId', '') || '').trim();
+    if (configured) {
+        await rememberLastUsedGistId(context, configured);
+        return configured;
+    }
+
+    const lastUsed = getLastUsedGistId(context);
+    if (!lastUsed) {
+        return '';
+    }
+
+    await config.update('gistId', lastUsed, vscode.ConfigurationTarget.Global);
+    await saveCurrentProfileFromGlobal(config);
+    logInfo(`Restored last used gistId=${lastUsed}`);
+    return lastUsed;
+}
+
+async function writeLastActionLog(
+    _context: vscode.ExtensionContext,
+    action: 'upload' | 'download' | 'sync',
+    status: 'completed' | 'failed' | 'aborted',
+    err?: unknown
+): Promise<void> {
+    try {
+        const settingsDir = settingsManager?.getUserSettingsDir();
+        if (!settingsDir) {
+            return;
+        }
+
+        fs.mkdirSync(settingsDir, { recursive: true });
+        const logPath = path.join(settingsDir, LAST_ACTION_LOG_FILENAME);
+        const lines = [
+            `action: ${action}`,
+            `status: ${status}`,
+            `timestamp: ${new Date().toISOString()}`
+        ];
+
+        if (err) {
+            lines.push(`error: ${toErrorMessage(err)}`);
+        }
+        if (trackedOutputLines.length > 0) {
+            lines.push('', '=== Report ===', ...trackedOutputLines);
+        }
+        if (trackedLogLines.length > 0) {
+            lines.push('', '=== Log ===', ...trackedLogLines);
+        }
+
+        fs.writeFileSync(logPath, `${lines.join('\n')}\n`, 'utf8');
+    } catch (writeErr) {
+        logWarn('Failed to write lastactionlog.', writeErr);
+    }
+}
+
 function normalizeIgnoredSettings(keys: string[]): string[] {
     const seen = new Set<string>();
     const normalized: string[] = [];
@@ -174,7 +282,7 @@ function parseGistIdFromInput(value: string): string | null {
 }
 
 async function runGettingStartedWizard(context: vscode.ExtensionContext): Promise<void> {
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const gistId = config.get<string>('gistId');
     const loggedIn = authManager?.isLoggedIn() ?? false;
 
@@ -232,7 +340,7 @@ async function runGettingStartedWizard(context: vscode.ExtensionContext): Promis
     );
 
     const picked = await vscode.window.showQuickPick(items, {
-        title: "Soloboi's Settings Sync — Getting Started",
+        title: "DSFB Settings Sync — Getting Started",
         placeHolder: 'Pick what you want to do next'
     });
 
@@ -244,32 +352,32 @@ async function runGettingStartedWizard(context: vscode.ExtensionContext): Promis
 
     switch (picked.action) {
         case 'login':
-            await vscode.commands.executeCommand('soloboisSettingsSync.login');
+            await vscode.commands.executeCommand('dsfbSettingsSync.login');
             break;
         case 'useExistingGist':
-            await vscode.commands.executeCommand('soloboisSettingsSync.setGistId');
-            await vscode.commands.executeCommand('soloboisSettingsSync.downloadNow');
+            await vscode.commands.executeCommand('dsfbSettingsSync.setGistId');
+            await vscode.commands.executeCommand('dsfbSettingsSync.downloadNow');
             break;
         case 'createOrUpload':
-            await vscode.commands.executeCommand('soloboisSettingsSync.uploadNow');
+            await vscode.commands.executeCommand('dsfbSettingsSync.uploadNow');
             break;
         case 'syncNow':
-            await vscode.commands.executeCommand('soloboisSettingsSync.syncNow');
+            await vscode.commands.executeCommand('dsfbSettingsSync.syncNow');
             break;
         case 'viewDiff':
-            await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+            await vscode.commands.executeCommand('dsfbSettingsSync.showLocalVsRemoteDiff');
             break;
         case 'viewLog':
-            await vscode.commands.executeCommand('soloboisSettingsSync.showLog');
+            await vscode.commands.executeCommand('dsfbSettingsSync.showLog');
             break;
         case 'openSettings':
-            await vscode.commands.executeCommand('soloboisSettingsSync.openSettings');
+            await vscode.commands.executeCommand('dsfbSettingsSync.openSettings');
             break;
         case 'openRepo':
-            await vscode.commands.executeCommand('soloboisSettingsSync.openRepository');
+            await vscode.commands.executeCommand('dsfbSettingsSync.openRepository');
             break;
         case 'reportIssue':
-            await vscode.commands.executeCommand('soloboisSettingsSync.reportIssue');
+            await vscode.commands.executeCommand('dsfbSettingsSync.reportIssue');
             break;
     }
 }
@@ -291,30 +399,32 @@ function normalizeExtensionIds(ids: string[]): string[] {
 }
 
 async function installExtensionViaCLI(id: string): Promise<void> {
+    const extensionId = (id || '').trim();
+    let apiError: unknown = null;
+
     try {
-        await vscode.commands.executeCommand('workbench.extensions.installExtension', id);
+        await vscode.commands.executeCommand('workbench.extensions.installExtension', extensionId);
         return;
-    } catch {
-        // Fall back to the CLI when the built-in install command is unavailable or fails.
+    } catch (err) {
+        apiError = err;
+        // Fall back when the built-in install command is unavailable or fails.
     }
 
-    const appRoot = vscode.env.appRoot;
-    let cliPath: string;
-
-    if (process.platform === 'win32') {
-        cliPath = path.join(appRoot, '..', 'bin', 'code.cmd');
-    } else if (process.platform === 'darwin') {
-        cliPath = path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'code');
-    } else {
-        cliPath = path.join(appRoot, '..', 'bin', 'code');
+    let vsixError: unknown = null;
+    try {
+        const publicInstallSource = await resolvePublicExtensionInstallSource(extensionId);
+        if (publicInstallSource) {
+            await installFromVsixUrl(publicInstallSource, outputChannel ?? { appendLine() {}, clear() {}, show() {}, hide() {}, dispose() {}, replace() {}, append() {}, name: 'noop' } as unknown as vscode.OutputChannel);
+            return;
+        }
+    } catch (err) {
+        vsixError = err;
     }
 
-    if (!fs.existsSync(cliPath)) {
-        cliPath = 'code';
-    }
+    const cliPath = resolveExtensionCliPath();
 
     return new Promise<void>((resolve, reject) => {
-        cp.execFile(cliPath, ['--install-extension', id], (err, _stdout, stderr) => {
+        cp.execFile(cliPath, ['--install-extension', extensionId], (err, _stdout, stderr) => {
             if (err) {
                 const stderrText = (stderr || '').trim();
                 const errorText = `${err.message || ''}\n${stderrText}`.toLowerCase();
@@ -326,12 +436,227 @@ async function installExtensionViaCLI(id: string): Promise<void> {
                     return;
                 }
 
-                reject(err);
+                const details = cliPath === 'code'
+                    ? ' (no bundled CLI found; falling back to PATH command "code")'
+                    : '';
+                const fallbackMessages: string[] = [];
+                if (apiError) {
+                    fallbackMessages.push(`editor install failed: ${toErrorMessage(apiError)}`);
+                }
+                if (vsixError) {
+                    fallbackMessages.push(`VSIX fallback failed: ${toErrorMessage(vsixError)}`);
+                }
+                const fallbackSuffix = fallbackMessages.length > 0
+                    ? ` | ${fallbackMessages.join(' | ')}`
+                    : '';
+
+                reject(new Error(`${err.message || err}${details}${stderrText ? `: ${stderrText}` : ''}${fallbackSuffix}`));
                 return;
             }
             resolve();
         });
     });
+}
+
+function resolveExtensionCliPath(): string {
+    const appRoot = vscode.env.appRoot || '';
+    const execPath = process.execPath || '';
+    const envCandidates = [
+        process.env.VSCODE_CLI,
+        process.env.CODE_CLI_PATH,
+        process.env.ANTIGRAVITY_CLI_PATH
+    ];
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+
+    const addCandidate = (value?: string) => {
+        if (!value) {
+            return;
+        }
+        const normalized = path.normalize(value);
+        if (seen.has(normalized)) {
+            return;
+        }
+        seen.add(normalized);
+        candidates.push(normalized);
+    };
+
+    for (const candidate of envCandidates) {
+        addCandidate(candidate);
+    }
+
+    if (process.platform === 'win32') {
+        addCandidate(path.join(appRoot, '..', 'bin', 'code.cmd'));
+        addCandidate(path.join(appRoot, '..', 'bin', 'code-insiders.cmd'));
+        addCandidate(path.join(appRoot, '..', 'bin', 'antigravity.cmd'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'code.cmd'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'code-insiders.cmd'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'antigravity.cmd'));
+    } else if (process.platform === 'darwin') {
+        addCandidate(path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'code'));
+        addCandidate(path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'code-insiders'));
+        addCandidate(path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'cursor'));
+        addCandidate(path.join(appRoot, '..', '..', '..', 'Contents', 'Resources', 'app', 'bin', 'antigravity'));
+        addCandidate(path.join(appRoot, 'bin', 'code'));
+        addCandidate(path.join(appRoot, 'bin', 'code-insiders'));
+        addCandidate(path.join(appRoot, 'bin', 'cursor'));
+        addCandidate(path.join(appRoot, 'bin', 'antigravity'));
+        addCandidate(path.join(path.dirname(execPath), '..', 'Resources', 'app', 'bin', 'code'));
+        addCandidate(path.join(path.dirname(execPath), '..', 'Resources', 'app', 'bin', 'code-insiders'));
+        addCandidate(path.join(path.dirname(execPath), '..', 'Resources', 'app', 'bin', 'cursor'));
+        addCandidate(path.join(path.dirname(execPath), '..', 'Resources', 'app', 'bin', 'antigravity'));
+    } else {
+        addCandidate(path.join(appRoot, '..', 'bin', 'code'));
+        addCandidate(path.join(appRoot, '..', 'bin', 'code-insiders'));
+        addCandidate(path.join(appRoot, '..', 'bin', 'cursor'));
+        addCandidate(path.join(appRoot, '..', 'bin', 'antigravity'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'code'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'code-insiders'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'cursor'));
+        addCandidate(path.join(path.dirname(execPath), 'bin', 'antigravity'));
+    }
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+
+    return 'code';
+}
+
+function parseExtensionIdentifier(id: string): { id: string; publisher: string; name: string } | null {
+    const normalized = (id || '').trim();
+    const parts = normalized.split('.').filter(Boolean);
+    if (parts.length < 2) {
+        return null;
+    }
+
+    return {
+        id: normalized,
+        publisher: parts[0],
+        name: parts.slice(1).join('.')
+    };
+}
+
+async function resolvePublicExtensionInstallSource(id: string): Promise<ExtensionUpdateInfo | null> {
+    const parsed = parseExtensionIdentifier(id);
+    if (!parsed) {
+        return null;
+    }
+
+    const openVsxSource = await resolveOpenVsxInstallSource(parsed);
+    if (openVsxSource) {
+        return openVsxSource;
+    }
+
+    return resolveVSMarketplaceInstallSource(parsed);
+}
+
+async function resolveOpenVsxInstallSource(
+    extension: { id: string; publisher: string; name: string }
+): Promise<ExtensionUpdateInfo | null> {
+    const versions = await fetchVersionList(extension.id, 'https://open-vsx.org');
+    const latestVersion = versions[0];
+    if (!latestVersion) {
+        return null;
+    }
+
+    const vsixFile = `${extension.publisher}.${extension.name}-${latestVersion}.vsix`;
+    return {
+        id: extension.id,
+        currentVersion: '0.0.0',
+        latestVersion,
+        marketplaceDomain: 'open-vsx.org',
+        vsixUrl: `https://open-vsx.org/api/${encodeURIComponent(extension.publisher)}/${encodeURIComponent(extension.name)}/${encodeURIComponent(latestVersion)}/file/${vsixFile}`
+    };
+}
+
+async function resolveVSMarketplaceInstallSource(
+    extension: { id: string; publisher: string; name: string }
+): Promise<ExtensionUpdateInfo | null> {
+    const metadata = await queryVSMarketplaceExtension(extension.id);
+    if (!metadata?.latestVersion) {
+        return null;
+    }
+
+    return {
+        id: extension.id,
+        currentVersion: '0.0.0',
+        latestVersion: metadata.latestVersion,
+        marketplaceDomain: 'marketplace.visualstudio.com',
+        vsixUrl: metadata.vsixUrl
+    };
+}
+
+async function queryVSMarketplaceExtension(id: string): Promise<{ latestVersion: string; vsixUrl: string } | null> {
+    const parsed = parseExtensionIdentifier(id);
+    if (!parsed) {
+        return null;
+    }
+
+    const body = JSON.stringify({
+        filters: [
+            {
+                criteria: [
+                    { filterType: 7, value: id }
+                ],
+                pageNumber: 1,
+                pageSize: 1,
+                sortBy: 0,
+                sortOrder: 0
+            }
+        ],
+        assetTypes: ['Microsoft.VisualStudio.Services.VSIXPackage'],
+        flags: 103
+    });
+
+    const responseText = await new Promise<string>((resolve, reject) => {
+        const req = require('https').request({
+            hostname: 'marketplace.visualstudio.com',
+            method: 'POST',
+            path: '/_apis/public/gallery/extensionquery',
+            headers: {
+                'User-Agent': 'DSFB-Settings-Sync',
+                'Accept': 'application/json;api-version=3.0-preview.1',
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body).toString()
+            }
+        }, (res: any) => {
+            let data = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk: string) => {
+                data += chunk;
+            });
+            res.on('end', () => {
+                if ((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300) {
+                    resolve(data);
+                    return;
+                }
+                reject(new Error(`Marketplace query failed with HTTP ${res.statusCode || 0}`));
+            });
+        });
+
+        req.on('error', reject);
+        req.write(body);
+        req.end();
+    });
+
+    const payload = JSON.parse(responseText);
+    const extension = payload?.results?.[0]?.extensions?.[0];
+    const latestVersion = extension?.versions?.[0]?.version;
+    if (!latestVersion) {
+        return null;
+    }
+
+    const explicitVsixUrl = extension.versions[0]?.files?.find(
+        (file: any) => file.assetType === 'Microsoft.VisualStudio.Services.VSIXPackage'
+    )?.source;
+
+    return {
+        latestVersion,
+        vsixUrl: explicitVsixUrl || `https://marketplace.visualstudio.com/_apis/public/gallery/publishers/${encodeURIComponent(parsed.publisher)}/vsextensions/${encodeURIComponent(parsed.name)}/${encodeURIComponent(latestVersion)}/vspackage`
+    };
 }
 
 function getCurrentProfileName(config: vscode.WorkspaceConfiguration): string {
@@ -391,7 +716,7 @@ function normalizeProfiles(raw: unknown): Record<string, SyncProfile> {
 }
 
 async function saveCurrentProfileFromGlobal(config?: vscode.WorkspaceConfiguration): Promise<void> {
-    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const cfg = config || vscode.workspace.getConfiguration('dsfbSettingsSync');
     const profileName = getCurrentProfileName(cfg);
     const profiles = normalizeProfiles(cfg.get<Record<string, unknown>>('profiles', {}));
     profiles[profileName] = getCurrentGlobalSyncState(cfg);
@@ -399,7 +724,7 @@ async function saveCurrentProfileFromGlobal(config?: vscode.WorkspaceConfigurati
 }
 
 async function applyProfileToGlobalSettings(profileName: string, config?: vscode.WorkspaceConfiguration): Promise<void> {
-    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const cfg = config || vscode.workspace.getConfiguration('dsfbSettingsSync');
     const profiles = normalizeProfiles(cfg.get<Record<string, unknown>>('profiles', {}));
     const profile = profiles[profileName];
     if (!profile) {
@@ -412,7 +737,7 @@ async function applyProfileToGlobalSettings(profileName: string, config?: vscode
 }
 
 async function initializeProfiles(): Promise<void> {
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const currentProfile = getCurrentProfileName(config);
     const profiles = normalizeProfiles(config.get<Record<string, unknown>>('profiles', {}));
 
@@ -434,7 +759,7 @@ function getInstalledUserExtensionIds(): Set<string> {
 }
 
 async function cleanupIgnoredExtensions(): Promise<void> {
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const current = config.get<string[]>('ignoredExtensions', []);
     const normalized = normalizeExtensionIds(current);
     const installed = getInstalledUserExtensionIds();
@@ -459,7 +784,7 @@ function isAntigravityPlatform(platform: Platform): boolean {
 }
 
 function getSyncOptions(config?: vscode.WorkspaceConfiguration): SyncOptions {
-    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const cfg = config || vscode.workspace.getConfiguration('dsfbSettingsSync');
     const inferredDefault = isAntigravityPlatform(currentPlatform);
     const inspected = cfg.inspect<boolean>('syncAntigravityConfig');
     const hasUserValue =
@@ -569,7 +894,7 @@ async function pruneIntentionallyRemovedExtensions(
 }
 
 function getAutoUploadSuppressionWindow(config?: vscode.WorkspaceConfiguration): number {
-    const cfg = config || vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const cfg = config || vscode.workspace.getConfiguration('dsfbSettingsSync');
     const delay = Math.max(cfg.get<number>('autoUploadDelay', 5000), 0);
     return delay + AUTO_UPLOAD_SUPPRESSION_BUFFER_MS;
 }
@@ -621,7 +946,7 @@ async function shouldDownloadRemoteOnStartup(
         return false;
     }
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const gistId = config.get<string>('gistId');
     if (!gistId) {
         return false;
@@ -747,7 +1072,7 @@ async function filterExtensionsByMarketplace(
     const ids = remoteList
         .map(ext => (ext.id || '').trim().toLowerCase())
         .filter(id => !!id);
-    const customMarketplaceUrl = vscode.workspace.getConfiguration('soloboisSettingsSync').get<string>('customMarketplaceUrl', '');
+    const customMarketplaceUrl = vscode.workspace.getConfiguration('dsfbSettingsSync').get<string>('customMarketplaceUrl', '');
     const availability = await checkMarketplaceForPlatform(ids, currentPlatform, customMarketplaceUrl || undefined);
 
     const unavailableIds: string[] = [];
@@ -807,34 +1132,36 @@ async function promptUnknownExtensionsAction(
 // ─── 활성화 (Activation) ─────────────────────────────────────────────────────────────────────────────────────────────
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Soloboi\'s Settings Sync is now active.');
+    console.log('DSFB Settings Sync is now active.');
 
     // Initialize Services
     authManager = new AuthManager(context);
     gistService = new GistService();
     settingsManager = new SettingsManager();
     currentPlatform = detectPlatform();
-    console.log(`Soloboi's Settings Sync: detected platform = ${currentPlatform} (appName: ${vscode.env.appName})`);
+    console.log(`DSFB Settings Sync: detected platform = ${currentPlatform} (appName: ${vscode.env.appName})`);
     await initializeProfiles();
     lastSyncTime = context.globalState.get<string>(LAST_SYNC_KEY) || null;
 
     // Initialize UI
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.command = 'soloboisSettingsSync.syncNow';
+    statusBarItem.command = 'dsfbSettingsSync.syncNow';
     context.subscriptions.push(statusBarItem);
     updateStatusBar('idle');
     statusBarItem.show();
 
     // Output channels
-    outputChannel = vscode.window.createOutputChannel("Soloboi's Settings Sync");
+    outputChannel = vscode.window.createOutputChannel("DSFB Settings Sync");
     context.subscriptions.push(outputChannel);
     // Log channel (kept separate from the report output, so diff/preview clears won't wipe logs)
-    logChannel = vscode.window.createOutputChannel("Soloboi's Settings Sync Log", { log: true });
+    logChannel = vscode.window.createOutputChannel("DSFB Settings Sync Log", { log: true });
     context.subscriptions.push(logChannel);
+    trackOutputChannel(outputChannel, trackedOutputLines, true);
+    trackOutputChannel(logChannel, trackedLogLines, false);
 
     // Virtual document provider for vscode.diff panels
     context.subscriptions.push(
-        vscode.workspace.registerTextDocumentContentProvider('soloboi-diff', {
+        vscode.workspace.registerTextDocumentContentProvider('dsfb-diff', {
             provideTextDocumentContent(uri: vscode.Uri): string {
                 return diffDocumentStore.get(uri.path) ?? '';
             }
@@ -846,7 +1173,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Register Tree View
     const treeProvider = new SoloboiSyncTreeProvider(authManager, gistService);
     context.subscriptions.push(
-        vscode.window.registerTreeDataProvider('soloboisSettingsSync.treeView', treeProvider)
+        vscode.window.registerTreeDataProvider('dsfbSettingsSync.treeView', treeProvider)
     );
 
     // Keep ignoredExtensions clean when extensions are removed.
@@ -890,7 +1217,7 @@ export async function activate(context: vscode.ExtensionContext) {
                             continue;
                         }
 
-                        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
                         const existingIgnored = config.get<string[]>('ignoredSettings', []);
                         const toAdd = keys.filter(key => !existingIgnored.includes(key));
                         if (toAdd.length === 0) {
@@ -918,7 +1245,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             if (!config.get<boolean>('autoSync', false) || !config.get<boolean>('autoUploadOnChange', true)) {
                 return;
             }
@@ -930,14 +1257,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (event) => {
-            const profileChanged = event.affectsConfiguration('soloboisSettingsSync.currentProfile');
+            const profileChanged = event.affectsConfiguration('dsfbSettingsSync.currentProfile');
             const managedValueChanged =
-                event.affectsConfiguration('soloboisSettingsSync.gistId') ||
-                event.affectsConfiguration('soloboisSettingsSync.ignoredSettings') ||
-                event.affectsConfiguration('soloboisSettingsSync.ignoredExtensions');
+                event.affectsConfiguration('dsfbSettingsSync.gistId') ||
+                event.affectsConfiguration('dsfbSettingsSync.ignoredSettings') ||
+                event.affectsConfiguration('dsfbSettingsSync.ignoredExtensions');
 
             if (profileChanged) {
-                const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
                 const profileName = getCurrentProfileName(config);
                 await applyProfileToGlobalSettings(profileName, config);
                 await cleanupIgnoredExtensions();
@@ -956,55 +1283,55 @@ export async function activate(context: vscode.ExtensionContext) {
     // ─── 명령 등록 (Register Commands) ────────────────────────────────────────────────────────────────────────────────
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.login', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.login', async () => {
             await authManager.login();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.logout', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.logout', async () => {
             await authManager.logout();
             updateStatusBar('logged-out');
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.uploadNow', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.uploadNow', async () => {
             await ensureLoggedIn();
             await uploadSettings(context);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.downloadNow', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.downloadNow', async () => {
             await ensureLoggedIn();
             await downloadSettings(context);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.syncNow', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.syncNow', async () => {
             await ensureLoggedIn();
             await fullSync(context);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.showHistory', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.showHistory', async () => {
             await ensureLoggedIn();
             await showGistHistory(context);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.switchProfile', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.switchProfile', async () => {
             await switchProfile(treeProvider);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.setGistId', async () => {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.setGistId', async () => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const currentId = config.get<string>('gistId') || '';
             const input = await vscode.window.showInputBox({
                 title: 'Set Gist ID',
@@ -1022,15 +1349,15 @@ export async function activate(context: vscode.ExtensionContext) {
             if (input !== undefined) {
                 const parsed = parseGistIdFromInput(input);
                 if (parsed === null) {
-                    vscode.window.showErrorMessage("Soloboi's Settings Sync: Invalid Gist ID/URL.");
+                    vscode.window.showErrorMessage("DSFB Settings Sync: Invalid Gist ID/URL.");
                     return;
                 }
                 await config.update('gistId', parsed, vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
                 if (parsed) {
-                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID updated. (${parsed.substring(0, 8)}...)`);
+                    vscode.window.showInformationMessage(`DSFB Settings Sync: Gist ID updated. (${parsed.substring(0, 8)}...)`);
                 } else {
-                    vscode.window.showInformationMessage("Soloboi's Settings Sync: Gist ID cleared.");
+                    vscode.window.showInformationMessage("DSFB Settings Sync: Gist ID cleared.");
                 }
                 treeProvider.refresh();
             }
@@ -1038,25 +1365,25 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.selectGist', async (gistId: string) => {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.selectGist', async (gistId: string) => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
             await saveCurrentProfileFromGlobal(config);
-            vscode.window.showInformationMessage(`Soloboi's Settings Sync: Gist ID updated. (${gistId.substring(0, 8)}...)`);
+            vscode.window.showInformationMessage(`DSFB Settings Sync: Gist ID updated. (${gistId.substring(0, 8)}...)`);
             treeProvider.refresh();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.configureIgnoredExtensions', async () => {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.configureIgnoredExtensions', async () => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             await cleanupIgnoredExtensions();
             const currentlyIgnored = new Set(
                 normalizeExtensionIds(config.get<string[]>('ignoredExtensions', []))
             );
 
             const extensions = vscode.extensions.all
-                .filter(ext => !ext.packageJSON?.isBuiltin && ext.id !== 'soloboi.solobois-settings-sync')
+                .filter(ext => !ext.packageJSON?.isBuiltin && ext.id !== 'diegosfb.dsfb-settings-sync')
                 .map(ext => ({
                     label: ext.packageJSON?.displayName || ext.packageJSON?.name || ext.id,
                     description: ext.id,
@@ -1074,15 +1401,15 @@ export async function activate(context: vscode.ExtensionContext) {
                 const newIgnored = normalizeExtensionIds(selected.map(item => item.description || ''));
                 await config.update('ignoredExtensions', newIgnored, vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
-                vscode.window.showInformationMessage("Soloboi's Settings Sync: Ignored extensions updated.");
+                vscode.window.showInformationMessage("DSFB Settings Sync: Ignored extensions updated.");
                 treeProvider.refresh();
             }
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.configureIgnoredSettings', async () => {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.configureIgnoredSettings', async () => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const currentlyIgnored = new Set(config.get<string[]>('ignoredSettings', []));
 
             const localObj = settingsManager.getLocalSettingsObject();
@@ -1149,15 +1476,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
                 await config.update('ignoredSettings', Array.from(finalIgnored), vscode.ConfigurationTarget.Global);
                 await saveCurrentProfileFromGlobal(config);
-                vscode.window.showInformationMessage("Soloboi's Settings Sync: Ignored settings updated.");
+                vscode.window.showInformationMessage("DSFB Settings Sync: Ignored settings updated.");
                 treeProvider.refresh();
             }
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.setCustomMarketplaceUrl', async () => {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.setCustomMarketplaceUrl', async () => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const current = config.get<string>('customMarketplaceUrl', '');
             const input = await vscode.window.showInputBox({
                 title: 'Custom Marketplace URL',
@@ -1168,21 +1495,21 @@ export async function activate(context: vscode.ExtensionContext) {
             if (input === undefined) { return; } // cancelled
             await config.update('customMarketplaceUrl', input.trim(), vscode.ConfigurationTarget.Global);
             if (input.trim()) {
-                vscode.window.showInformationMessage(`Soloboi's Settings Sync: Custom marketplace URL set.`);
+                vscode.window.showInformationMessage(`DSFB Settings Sync: Custom marketplace URL set.`);
             } else {
-                vscode.window.showInformationMessage(`Soloboi's Settings Sync: Custom marketplace URL cleared.`);
+                vscode.window.showInformationMessage(`DSFB Settings Sync: Custom marketplace URL cleared.`);
             }
             treeProvider.refresh();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.togglePublicGist', async () => {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.togglePublicGist', async () => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const current = config.get<boolean>('publicGist', false);
             await config.update('publicGist', !current, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(
-                `Soloboi's Settings Sync: New Gists will be created as ${!current ? 'public' : 'private'}.`
+                `DSFB Settings Sync: New Gists will be created as ${!current ? 'public' : 'private'}.`
             );
             treeProvider.refresh();
         })
@@ -1190,16 +1517,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Share Your Settings ────────────────────────────────────────────────
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.shareSettings', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.shareSettings', async () => {
             const token = await authManager.getToken();
             if (!token) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Please log in to GitHub first.");
                 return;
             }
 
             // Fetch existing public sync gists
             const allGists: any[] = await gistService.getUserGists(token);
-            const SHARE_PREFIX = "Soloboi's Settings Sync - ";
+            const SHARE_PREFIX = "DSFB Settings Sync - ";
             const publicGists = allGists.filter(
                 (g: any) => g.public === true && g.description?.startsWith(SHARE_PREFIX)
             );
@@ -1243,7 +1570,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (choice.value === 'copy') {
                     await vscode.env.clipboard.writeText(url);
                     vscode.window.showInformationMessage(
-                        `Soloboi's Settings Sync: Link copied! Share it with friends 🎉\n${url}`
+                        `DSFB Settings Sync: Link copied! Share it with friends 🎉\n${url}`
                     );
                 } else {
                     const newName = await vscode.window.showInputBox({
@@ -1254,7 +1581,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (!newName) { return; }
                     await gistService.updateGist(p.gist.id, {}, token, SHARE_PREFIX + newName.trim());
                     vscode.window.showInformationMessage(
-                        `Soloboi's Settings Sync: Gist renamed to "${newName.trim()}".`
+                        `DSFB Settings Sync: Gist renamed to "${newName.trim()}".`
                     );
                     treeProvider.refresh();
                 }
@@ -1286,7 +1613,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 const url = `https://gist.github.com/${(gistData as any)?.owner?.login ?? ''}/${gistData?.id}`;
                 await vscode.env.clipboard.writeText(url);
                 vscode.window.showInformationMessage(
-                    `Soloboi's Settings Sync: Settings shared! URL copied 🎉\n${url}`,
+                    `DSFB Settings Sync: Settings shared! URL copied 🎉\n${url}`,
                     'Open in Browser'
                 ).then(sel => {
                     if (sel === 'Open in Browser') {
@@ -1297,7 +1624,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 treeProvider.refresh();
             } catch (err: any) {
                 vscode.window.showErrorMessage(
-                    `Soloboi's Settings Sync: Share failed: ${err?.message ?? err}`
+                    `DSFB Settings Sync: Share failed: ${err?.message ?? err}`
                 );
             } finally {
                 updateStatusBar('idle');
@@ -1306,16 +1633,16 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.showLocalVsRemoteDiff', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.showLocalVsRemoteDiff', async () => {
             const token = await authManager.getToken();
             if (!token) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Please log in to GitHub first.");
                 return;
             }
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const gistId = config.get<string>('gistId');
             if (!gistId) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Gist ID is not set.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Gist ID is not set.");
                 return;
             }
             updateStatusBar('downloading');
@@ -1348,7 +1675,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 }
 
                 if (filesToDiff.length === 0) {
-                    vscode.window.showInformationMessage("Soloboi's Settings Sync: No files to diff.");
+                    vscode.window.showInformationMessage("DSFB Settings Sync: No files to diff.");
                     return;
                 }
 
@@ -1364,8 +1691,8 @@ export async function activate(context: vscode.ExtensionContext) {
                     diffDocumentStore.set(remotePath, remoteFormatted);
                     diffDocumentStore.set(localPath, localFormatted);
 
-                    const leftUri = vscode.Uri.parse(`soloboi-diff:${remotePath}`).with({ query: Date.now().toString() });
-                    const rightUri = vscode.Uri.parse(`soloboi-diff:${localPath}`).with({ query: Date.now().toString() });
+                    const leftUri = vscode.Uri.parse(`dsfb-diff:${remotePath}`).with({ query: Date.now().toString() });
+                    const rightUri = vscode.Uri.parse(`dsfb-diff:${localPath}`).with({ query: Date.now().toString() });
 
                     await vscode.commands.executeCommand(
                         'vscode.diff',
@@ -1375,7 +1702,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     );
                 }
             } catch (err: any) {
-                vscode.window.showErrorMessage(`Soloboi's Settings Sync: Diff failed: ${err.message}`);
+                vscode.window.showErrorMessage(`DSFB Settings Sync: Diff failed: ${err.message}`);
             } finally {
                 updateStatusBar('idle');
             }
@@ -1384,7 +1711,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Marketplace Manager commands (Task #1) ─────────────────────────────
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.addMarketplace', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.addMarketplace', async () => {
             const input = await vscode.window.showInputBox({
                 title: 'Add Marketplace',
                 prompt: 'Enter an OpenVSX-compatible marketplace base URL.',
@@ -1394,7 +1721,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const result = await marketplaceManager.addMarketplace(input.trim());
             if (result) {
                 vscode.window.showInformationMessage(
-                    `Soloboi's Settings Sync: Marketplace "${result.domain}" added.`
+                    `DSFB Settings Sync: Marketplace "${result.domain}" added.`
                 );
                 treeProvider.refresh();
             }
@@ -1402,11 +1729,11 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.removeMarketplace', async (domain?: string) => {
+        vscode.commands.registerCommand('dsfbSettingsSync.removeMarketplace', async (domain?: string) => {
             const registry = marketplaceManager.getRegistry();
             const domains = Object.keys(registry);
             if (domains.length === 0) {
-                vscode.window.showInformationMessage(`Soloboi's Settings Sync: No marketplaces registered.`);
+                vscode.window.showInformationMessage(`DSFB Settings Sync: No marketplaces registered.`);
                 return;
             }
 
@@ -1418,17 +1745,17 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!target) { return; }
             await marketplaceManager.removeMarketplace(target);
             vscode.window.showInformationMessage(
-                `Soloboi's Settings Sync: Marketplace "${target}" removed.`
+                `DSFB Settings Sync: Marketplace "${target}" removed.`
             );
             treeProvider.refresh();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.reorderMarketplace', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.reorderMarketplace', async () => {
             const ordered = marketplaceManager.getOrderedMarketplaces();
             if (ordered.length < 2) {
-                vscode.window.showInformationMessage(`Soloboi's Settings Sync: Need at least 2 marketplaces to reorder.`);
+                vscode.window.showInformationMessage(`DSFB Settings Sync: Need at least 2 marketplaces to reorder.`);
                 return;
             }
 
@@ -1451,27 +1778,27 @@ export async function activate(context: vscode.ExtensionContext) {
             ];
             await marketplaceManager.reorderMarketplace(newOrder);
             vscode.window.showInformationMessage(
-                `Soloboi's Settings Sync: "${selected.domain}" moved to top of scan order.`
+                `DSFB Settings Sync: "${selected.domain}" moved to top of scan order.`
             );
             treeProvider.refresh();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.toggleCustomMarketplaceAutoUpdate', async () => {
-            const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.toggleCustomMarketplaceAutoUpdate', async () => {
+            const cfg = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const current = cfg.get<boolean>('customMarketplaceAutoUpdate', false);
             await cfg.update('customMarketplaceAutoUpdate', !current, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(
-                `Soloboi's Settings Sync: Custom marketplace auto-update ${!current ? 'enabled' : 'disabled'}.`
+                `DSFB Settings Sync: Custom marketplace auto-update ${!current ? 'enabled' : 'disabled'}.`
             );
             treeProvider.refresh();
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.removePrivateExtension', async (extId?: string) => {
-            const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.removePrivateExtension', async (extId?: string) => {
+            const cfg = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const existing: any[] = cfg.get('privateExtensions', []);
 
             const target = extId ?? await vscode.window.showQuickPick(
@@ -1484,7 +1811,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const updated = existing.filter((e: any) => e.id !== target);
             await cfg.update('privateExtensions', updated, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(
-                `Soloboi's Settings Sync: "${target}" removed from private extensions.`
+                `DSFB Settings Sync: "${target}" removed from private extensions.`
             );
             treeProvider.refresh();
         })
@@ -1492,11 +1819,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Custom Marketplace Update Checker (Task #2) ────────────────────────
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.checkCustomMarketplaceUpdates', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.checkCustomMarketplaceUpdates', async () => {
             const marketplaceUrls = marketplaceManager.getOrderedUrls();
             if (marketplaceUrls.length === 0) {
                 vscode.window.showInformationMessage(
-                    `Soloboi's Settings Sync: No custom marketplaces registered. Add one first.`
+                    `DSFB Settings Sync: No custom marketplaces registered. Add one first.`
                 );
                 return;
             }
@@ -1512,12 +1839,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 const updates = await checkCustomMarketplaceUpdates(installed, marketplaceUrls);
 
                 if (updates.length === 0) {
-                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: All custom marketplace extensions are up to date.`);
+                    vscode.window.showInformationMessage(`DSFB Settings Sync: All custom marketplace extensions are up to date.`);
                     outputChannel.appendLine('[Custom Marketplace] No updates found.');
                     return;
                 }
 
-                const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                const cfg = vscode.workspace.getConfiguration('dsfbSettingsSync');
                 const autoUpdate = cfg.get<boolean>('customMarketplaceAutoUpdate', false);
 
                 if (autoUpdate) {
@@ -1525,7 +1852,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         await installFromVsixUrl(upd, outputChannel);
                     }
                     vscode.window.showInformationMessage(
-                        `Soloboi's Settings Sync: Auto-installed ${updates.length} update(s).`
+                        `DSFB Settings Sync: Auto-installed ${updates.length} update(s).`
                     );
                 } else {
                     const quickPickItems = updates.map(u => ({
@@ -1547,12 +1874,12 @@ export async function activate(context: vscode.ExtensionContext) {
                         await installFromVsixUrl(item.update, outputChannel);
                     }
                     vscode.window.showInformationMessage(
-                        `Soloboi's Settings Sync: Installed ${selected.length} update(s).`
+                        `DSFB Settings Sync: Installed ${selected.length} update(s).`
                     );
                 }
             } catch (err: any) {
                 vscode.window.showErrorMessage(
-                    `Soloboi's Settings Sync: Update check failed: ${err?.message ?? err}`
+                    `DSFB Settings Sync: Update check failed: ${err?.message ?? err}`
                 );
             } finally {
                 updateStatusBar('idle');
@@ -1562,9 +1889,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Private Extension Sync (Task #3) ──────────────────────────────────
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.registerPrivateExtension', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.registerPrivateExtension', async () => {
             // Step 1: detect unknown installed extensions
-            const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const cfg = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const existing = cfg.get<any[]>('privateExtensions', []);
             const existingIds = new Set(existing.map((e: any) => (e.id ?? '').toLowerCase()));
 
@@ -1632,8 +1959,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
             const localPath = getExtensionLocalPath(extId, extVersion);
             const msg = vsixUrl?.trim()
-                ? `Soloboi's Settings Sync: "${extId}" registered. VSIX URL stored — will auto-install on sync.`
-                : `Soloboi's Settings Sync: "${extId}" registered.\n⚠️ No VSIX URL provided — manual install required.\nLocal path hint: ${localPath}`;
+                ? `DSFB Settings Sync: "${extId}" registered. VSIX URL stored — will auto-install on sync.`
+                : `DSFB Settings Sync: "${extId}" registered.\n⚠️ No VSIX URL provided — manual install required.\nLocal path hint: ${localPath}`;
 
             vscode.window.showInformationMessage(msg);
             outputChannel.appendLine(`[Private Extensions] Registered: ${extId} v${extVersion}`);
@@ -1647,16 +1974,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ── Help / UX shortcuts ───────────────────────────────────────────────
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.openSettings', async () => {
-            await vscode.commands.executeCommand('workbench.action.openSettings', 'soloboisSettingsSync');
+        vscode.commands.registerCommand('dsfbSettingsSync.openSettings', async () => {
+            await vscode.commands.executeCommand('workbench.action.openSettings', 'dsfbSettingsSync');
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.openRepository', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.openRepository', async () => {
             const repoUrl = (context.extension.packageJSON?.repository?.url as string | undefined) || '';
             if (!repoUrl) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Repository URL is not set.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Repository URL is not set.");
                 return;
             }
             await vscode.env.openExternal(vscode.Uri.parse(repoUrl));
@@ -1664,10 +1991,10 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.reportIssue', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.reportIssue', async () => {
             const issuesUrl = (context.extension.packageJSON?.bugs?.url as string | undefined) || '';
             if (!issuesUrl) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Issues URL is not set.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Issues URL is not set.");
                 return;
             }
             await vscode.env.openExternal(vscode.Uri.parse(issuesUrl));
@@ -1675,13 +2002,13 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.showLog', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.showLog', async () => {
             logChannel.show(true);
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('soloboisSettingsSync.getStarted', async () => {
+        vscode.commands.registerCommand('dsfbSettingsSync.getStarted', async () => {
             await runGettingStartedWizard(context);
         })
     );
@@ -1695,13 +2022,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // ─── 설정 마법사 (Setup Wizard) ──────────────────────────────────────────────────────────────────────────────────
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-    const gistId = config.get<string>('gistId');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
+    const gistId = await getEffectiveGistId(context, config);
     const prompted = context.globalState.get<boolean>('setupPrompted', false);
 
     if (!gistId && !prompted) {
         vscode.window.showInformationMessage(
-            "Welcome to Soloboi's Settings Sync. Open Getting Started?",
+            "Welcome to DSFB Settings Sync. Open Getting Started?",
             'Getting Started',
             'Later'
         ).then(async selection => {
@@ -1745,15 +2072,15 @@ export async function activate(context: vscode.ExtensionContext) {
                         await installFromVsixUrl(upd, outputChannel);
                     }
                     vscode.window.showInformationMessage(
-                        `Soloboi's Settings Sync: Auto-installed ${updates.length} custom marketplace update(s).`
+                        `DSFB Settings Sync: Auto-installed ${updates.length} custom marketplace update(s).`
                     );
                 } else {
                     vscode.window.showInformationMessage(
-                        `Soloboi's Settings Sync: ${updates.length} custom marketplace update(s) available.`,
+                        `DSFB Settings Sync: ${updates.length} custom marketplace update(s) available.`,
                         'Update Now'
                     ).then(sel => {
                         if (sel === 'Update Now') {
-                            vscode.commands.executeCommand('soloboisSettingsSync.checkCustomMarketplaceUpdates');
+                            vscode.commands.executeCommand('dsfbSettingsSync.checkCustomMarketplaceUpdates');
                         }
                     });
                 }
@@ -1781,18 +2108,18 @@ export function deactivate(): Thenable<void> | undefined {
                 const baseFiles = buildGistFiles();
                 if (!baseFiles) { return; }
 
-                const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
                 const gistId = config.get<string>('gistId');
                 if (gistId) {
                     const currentGist = await gistService.getGist(gistId, token);
                     const files = withSyncMetadataFiles(baseFiles, currentGist?.files);
                     const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
                     await gistService.updateGist(gistId, files, token, undefined, filesToDelete);
-                    console.log('Soloboi\'s Settings Sync: Uploaded settings on exit.');
+                    console.log('DSFB Settings Sync: Uploaded settings on exit.');
                     logInfo('Uploaded settings on exit.');
                 }
             } catch (err) {
-                console.error('Soloboi\'s Settings Sync: Failed to upload on exit', err);
+                console.error('DSFB Settings Sync: Failed to upload on exit', err);
                 logError('Failed to upload on exit.', err);
             }
         })();
@@ -1807,41 +2134,48 @@ async function uploadSettings(
     silent: boolean = false
 ): Promise<boolean> {
     if (isUploading || isDownloading || isApplyingRemoteChanges) { return false; }
+    showSyncChannels();
     isUploading = true;
     updateStatusBar('uploading');
     logInfo('Upload started.');
+    let actionStatus: 'completed' | 'failed' | 'aborted' = 'failed';
+    let actionError: unknown = null;
 
     try {
         const token = await authManager.getToken();
         if (!token) {
             if (!silent) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Please log in to GitHub first.");
             }
             logWarn('Upload aborted: missing GitHub token.');
+            actionStatus = 'aborted';
             return false;
         }
 
         const baseFiles = buildGistFiles();
         if (!baseFiles) {
             if (!silent) {
-                vscode.window.showErrorMessage("Soloboi's Settings Sync: No sync files were generated.");
+                vscode.window.showErrorMessage("DSFB Settings Sync: No sync files were generated.");
             }
             logError('Upload failed: no sync files were generated.');
+            actionStatus = 'aborted';
             return false;
         }
 
         const filesForCreate = withSyncMetadataFiles(baseFiles);
 
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-        let gistId = config.get<string>('gistId');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
+        let gistId = await getEffectiveGistId(context, config);
 
         if (!gistId) {
             const newId = await selectOrCreateGist(context, token, filesForCreate, silent);
             if (!newId) {
+                actionStatus = 'aborted';
                 return false;
             }
             gistId = newId;
         }
+        await rememberLastUsedGistId(context, gistId);
 
         const dateStr = new Date().toLocaleString();
         const hostname = os.hostname();
@@ -1854,7 +2188,7 @@ async function uploadSettings(
         await pruneIntentionallyRemovedExtensions(context, files['extensions.json']?.content);
         if (!silent) {
             const selection = await vscode.window.showInformationMessage(
-                "Soloboi's Settings Sync: Uploaded to Gist.",
+                "DSFB Settings Sync: Uploaded to Gist.",
                 'Open Gist',
                 'View Output',
                 'View Log'
@@ -1872,14 +2206,16 @@ async function uploadSettings(
         await markStateSynchronized(context, now);
         updateStatusBar('idle');
         logInfo(`Upload completed. gistId=${gistId ?? ''}`);
+        actionStatus = 'completed';
         return true;
 
     } catch (err: any) {
-        console.error("Soloboi's Settings Sync upload error:", err);
+        console.error("DSFB Settings Sync upload error:", err);
         logError('Upload failed.', err);
+        actionError = err;
         if (!silent) {
             vscode.window.showErrorMessage(
-                `Soloboi's Settings Sync: Upload failed: ${err.message}`,
+                `DSFB Settings Sync: Upload failed: ${err.message}`,
                 'View Log',
                 'View Output'
             ).then(selection => {
@@ -1893,6 +2229,7 @@ async function uploadSettings(
         updateStatusBar('error');
         return false;
     } finally {
+        await writeLastActionLog(context, 'upload', actionStatus, actionError);
         isUploading = false;
     }
 }
@@ -1930,8 +2267,8 @@ async function openSyncDiffPanels(gistData: GistData): Promise<void> {
         diffDocumentStore.set(remotePath, remoteFormatted);
         diffDocumentStore.set(localPath, localFormatted);
 
-        const leftUri = vscode.Uri.parse(`soloboi-diff:${remotePath}`).with({ query: Date.now().toString() });
-        const rightUri = vscode.Uri.parse(`soloboi-diff:${localPath}`).with({ query: Date.now().toString() });
+        const leftUri = vscode.Uri.parse(`dsfb-diff:${remotePath}`).with({ query: Date.now().toString() });
+        const rightUri = vscode.Uri.parse(`dsfb-diff:${localPath}`).with({ query: Date.now().toString() });
 
         await vscode.commands.executeCommand(
             'vscode.diff',
@@ -1952,26 +2289,31 @@ async function downloadSettings(
     if (isDownloading || isUploading) {
         return false;
     }
+    showSyncChannels();
     isDownloading = true;
     updateStatusBar('downloading');
     logInfo('Download started.');
+    let actionStatus: 'completed' | 'failed' | 'aborted' = 'failed';
+    let actionError: unknown = null;
 
     try {
         const token = await authManager.getToken();
         if (!token) {
             if (!silent) {
-                vscode.window.showWarningMessage("Soloboi's Settings Sync: Please log in to GitHub first.");
+                vscode.window.showWarningMessage("DSFB Settings Sync: Please log in to GitHub first.");
             }
             logWarn('Download aborted: missing GitHub token.');
+            actionStatus = 'aborted';
             return false;
         }
 
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-        let gistId = config.get<string>('gistId');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
+        let gistId = await getEffectiveGistId(context, config);
         const suppressionWindow = getAutoUploadSuppressionWindow(config);
 
         if (!gistId) {
             if (silent) {
+                actionStatus = 'aborted';
                 return false;
             }
 
@@ -1979,10 +2321,12 @@ async function downloadSettings(
             const filesForCreate = baseFiles ? withSyncMetadataFiles(baseFiles) : null;
             const newId = await selectOrCreateGist(context, token, filesForCreate as any, silent);
             if (!newId) {
+                actionStatus = 'aborted';
                 return false;
             }
             gistId = newId;
         }
+        await rememberLastUsedGistId(context, gistId);
 
         const gistData = await gistService.getGist(gistId, token);
         if (!gistData?.files) {
@@ -2002,6 +2346,7 @@ async function downloadSettings(
 
             if (selection !== 'Apply') {
                 updateStatusBar('idle');
+                actionStatus = 'aborted';
                 return false;
             }
             previewConfirmed = true;
@@ -2016,8 +2361,9 @@ async function downloadSettings(
             suspendAutoUpload(suppressionWindow);
         }
         if (!silent) {
+            outputChannel.show(true);
             const selection = await vscode.window.showInformationMessage(
-                "Soloboi's Settings Sync: Downloaded and applied.",
+                "DSFB Settings Sync: Downloaded and applied.",
                 'View Output',
                 'View Diff',
                 'View Log'
@@ -2025,20 +2371,22 @@ async function downloadSettings(
             if (selection === 'View Output') {
                 outputChannel.show(true);
             } else if (selection === 'View Diff') {
-                await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
+                await vscode.commands.executeCommand('dsfbSettingsSync.showLocalVsRemoteDiff');
             } else if (selection === 'View Log') {
                 logChannel.show(true);
             }
         }
         logInfo(`Download completed. gistId=${gistId ?? ''}`);
+        actionStatus = 'completed';
         return true;
 
     } catch (err: any) {
-        console.error("Soloboi's Settings Sync download error:", err);
+        console.error("DSFB Settings Sync download error:", err);
         logError('Download failed.', err);
+        actionError = err;
         if (!silent) {
             vscode.window.showErrorMessage(
-                `Soloboi's Settings Sync: Download failed: ${err.message}`,
+                `DSFB Settings Sync: Download failed: ${err.message}`,
                 'View Log',
                 'View Output'
             ).then(selection => {
@@ -2052,6 +2400,7 @@ async function downloadSettings(
         updateStatusBar('error');
         return false;
     } finally {
+        await writeLastActionLog(context, 'download', actionStatus, actionError);
         isDownloading = false;
     }
 }
@@ -2059,35 +2408,51 @@ async function downloadSettings(
 // ─── 전체 동기화 (Full Sync) ─────────────────────────────────────────────────────────────────────────────
 
 async function fullSync(context: vscode.ExtensionContext): Promise<void> {
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
-    const gistId = config.get<string>('gistId');
+    showSyncChannels();
+    let actionStatus: 'completed' | 'failed' | 'aborted' = 'failed';
+    let actionError: unknown = null;
 
-    if (gistId) {
-        const downloaded = await downloadSettings(context, true, true);
-        if (!downloaded) {
-            logWarn('Full sync aborted: download step failed (upload skipped).');
-            vscode.window.showWarningMessage(
-                "Soloboi's Settings Sync: Download step failed. Upload skipped to avoid overwriting remote settings."
-            );
-            return;
-        }
-        await uploadSettings(context, false);
-        vscode.window.showInformationMessage(
-            "Soloboi's Settings Sync: Sync complete!",
-            'View Output',
-            'View Diff',
-            'View Log'
-        ).then(async selection => {
-            if (selection === 'View Output') {
-                outputChannel.show(true);
-            } else if (selection === 'View Diff') {
-                await vscode.commands.executeCommand('soloboisSettingsSync.showLocalVsRemoteDiff');
-            } else if (selection === 'View Log') {
-                logChannel.show(true);
+    try {
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
+        const gistId = await getEffectiveGistId(context, config);
+
+        if (gistId) {
+            const downloaded = await downloadSettings(context, true, true);
+            if (!downloaded) {
+                logWarn('Full sync aborted: download step failed (upload skipped).');
+                vscode.window.showWarningMessage(
+                    "DSFB Settings Sync: Download step failed. Upload skipped to avoid overwriting remote settings."
+                );
+                actionStatus = 'aborted';
+                return;
             }
-        });
-    } else {
-        await uploadSettings(context, false);
+
+            outputChannel.show(true);
+            await uploadSettings(context, false);
+            vscode.window.showInformationMessage(
+                "DSFB Settings Sync: Sync complete!",
+                'View Output',
+                'View Diff',
+                'View Log'
+            ).then(async selection => {
+                if (selection === 'View Output') {
+                    outputChannel.show(true);
+                } else if (selection === 'View Diff') {
+                    await vscode.commands.executeCommand('dsfbSettingsSync.showLocalVsRemoteDiff');
+                } else if (selection === 'View Log') {
+                    logChannel.show(true);
+                }
+            });
+        } else {
+            await uploadSettings(context, false);
+        }
+
+        actionStatus = 'completed';
+    } catch (err) {
+        actionError = err;
+        throw err;
+    } finally {
+        await writeLastActionLog(context, 'sync', actionStatus, actionError);
     }
 }
 
@@ -2097,7 +2462,7 @@ function setupFileWatchers(context: vscode.ExtensionContext): void {
     const settingsDir = settingsManager.getUserSettingsDir();
     if (!settingsDir) { return; }
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     if (!config.get<boolean>('autoSync', false)) { return; }
     if (!config.get<boolean>('autoUploadOnChange', true)) { return; }
 
@@ -2272,7 +2637,7 @@ function getGistTrustLevel(gistData: any, gistId: string): GistTrustLevel {
         return 'self';
     }
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const trustMap = config.get<Record<string, string>>('gistTrust', {}) || {};
     const entry = (trustMap[gistId] || '').trim().toLowerCase();
     return entry === 'trusted' ? 'trusted' : 'untrusted';
@@ -2482,7 +2847,7 @@ async function computeSyncDiff(
 
     if (syncOptions.syncExtensions && fileMap['extensions.json'] && !skipByHash.has('extensions.json')) {
         if (trustLevel !== 'untrusted') {
-            const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const ignoredExtensionIds = new Set(
                 normalizeExtensionIds(config.get<string[]>('ignoredExtensions', []))
             );
@@ -2511,7 +2876,7 @@ async function computeSyncDiff(
             if (config.get<boolean>('removeExtensions', false)) {
                 const remoteIds = new Set(filteredEntries.map(entry => entry.id.toLowerCase()));
                 for (const id of currentlyInstalled) {
-                    if (id === 'soloboi.solobois-settings-sync') {
+                    if (id === 'diegosfb.dsfb-settings-sync') {
                         continue;
                     }
                     if (ignoredExtensionIds.has(id)) {
@@ -2631,7 +2996,7 @@ async function applyGistData(
 ): Promise<void> {
     settingsManager.backupCurrentSettings();
     outputChannel.clear();
-    outputChannel.appendLine('=== Soloboi\'s Settings Sync download report ===');
+    outputChannel.appendLine('=== DSFB Settings Sync download report ===');
     outputChannel.appendLine('');
 
     const fileMap = (gistData?.files || {}) as Record<string, { content?: string }>;
@@ -2640,7 +3005,7 @@ async function applyGistData(
     const gistId = typeof gistData?.id === 'string' ? gistData.id.trim() : '';
     const trustLevel = gistId ? getGistTrustLevel(gistData, gistId) : 'untrusted';
     const skipByHash = computeHashSkipSet(fileMap, syncOptions, antigravityMode);
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const ignoredExtensionIds = new Set(
         normalizeExtensionIds(
             config.get<string[]>('ignoredExtensions', [])
@@ -2800,18 +3165,18 @@ async function applyGistData(
             outputChannel.appendLine('');
 
             const warningText = gistId
-                ? `This gist is untrusted (${gistId}). Extension install/uninstall is blocked. Set soloboisSettingsSync.gistTrust[\"${gistId}\"] = \"trusted\" to enable.`
+                ? `This gist is untrusted (${gistId}). Extension install/uninstall is blocked. Set dsfbSettingsSync.gistTrust[\"${gistId}\"] = \"trusted\" to enable.`
                 : 'This gist is untrusted. Extension install/uninstall is blocked.';
             const actions = gistId ? ['Trust This Gist', 'Open Settings'] : ['Open Settings'];
             vscode.window.showWarningMessage(warningText, ...(actions as any)).then(async selection => {
                 if (selection === 'Trust This Gist' && gistId) {
-                    const cfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+                    const cfg = vscode.workspace.getConfiguration('dsfbSettingsSync');
                     const trustMap = cfg.get<Record<string, string>>('gistTrust', {}) || {};
                     trustMap[gistId] = 'trusted';
                     await cfg.update('gistTrust', trustMap, vscode.ConfigurationTarget.Global);
-                    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Marked ${gistId} as trusted.`);
+                    vscode.window.showInformationMessage(`DSFB Settings Sync: Marked ${gistId} as trusted.`);
                 } else if (selection === 'Open Settings') {
-                    void vscode.commands.executeCommand('workbench.action.openSettings', 'soloboisSettingsSync.gistTrust');
+                    void vscode.commands.executeCommand('workbench.action.openSettings', 'dsfbSettingsSync.gistTrust');
                 }
             });
         } else {
@@ -2884,7 +3249,7 @@ async function applyGistData(
                         continue;
                     }
                     const id = ext.id.toLowerCase();
-                    if (id === 'soloboi.solobois-settings-sync') {
+                    if (id === 'diegosfb.dsfb-settings-sync') {
                         continue;
                     }
                     if (ignoredExtensionIds.has(id)) {
@@ -2972,7 +3337,7 @@ async function applyGistData(
 
             const uniqueUnavailable = uniqueList(unavailableIds);
             // Private extension fallback (Task #3)
-            const privateCfg = vscode.workspace.getConfiguration('soloboisSettingsSync');
+            const privateCfg = vscode.workspace.getConfiguration('dsfbSettingsSync');
             const privateExts: any[] = privateCfg.get('privateExtensions', []);
             for (const id of uniqueUnavailable) {
                 const label = displayById.get(id) || id;
@@ -2981,16 +3346,44 @@ async function applyGistData(
                     outputChannel.appendLine(`  [private] installing from VSIX URL: ${label}`);
                     try {
                         await installFromVsixUrl(
-                            { id: privateEntry.id, currentVersion: '0.0.0', latestVersion: privateEntry.version, marketplaceDomain: '' },
+                            {
+                                id: privateEntry.id,
+                                currentVersion: '0.0.0',
+                                latestVersion: privateEntry.version,
+                                marketplaceDomain: '',
+                                vsixUrl: privateEntry.vsixUrl
+                            },
                             outputChannel
                         );
                     } catch (err: any) {
-                        outputChannel.appendLine(`  ! private install failed: ${label} — ${err?.message ?? err}`);
+                        const message = err?.message ?? err;
+                        outputChannel.appendLine(`  ! private install failed: ${label} — ${message}`);
+                        if (privateEntry.localPath) {
+                            outputChannel.appendLine(`  [private] trying local VSIX fallback: ${privateEntry.localPath}`);
+                            try {
+                                await installFromLocalVsixPath(privateEntry.localPath, privateEntry.id, outputChannel);
+                            } catch (localErr: any) {
+                                outputChannel.appendLine(`  ! local VSIX fallback failed: ${label} — ${localErr?.message ?? localErr}`);
+                            }
+                        } else if (String(message).includes('HTTP 404')) {
+                            outputChannel.appendLine('    The stored GitHub release URL is not publicly reachable from the extension runtime.');
+                            outputChannel.appendLine('    This usually means the release asset is private, missing, or tagged differently than the saved VSIX URL.');
+                            outputChannel.appendLine('    Fix options: publish a public release asset, update the saved VSIX URL, or add a localPath fallback.');
+                        }
                     }
                 } else if (privateEntry) {
+                    if (privateEntry.localPath) {
+                        outputChannel.appendLine(`  [private] installing from local VSIX path: ${label}`);
+                        try {
+                            await installFromLocalVsixPath(privateEntry.localPath, privateEntry.id, outputChannel);
+                            continue;
+                        } catch (err: any) {
+                            outputChannel.appendLine(`  ! local VSIX fallback failed: ${label} — ${err?.message ?? err}`);
+                        }
+                    }
                     const localPath = getExtensionLocalPath(privateEntry.id, privateEntry.version);
                     outputChannel.appendLine(`  ⚠ ${label} is a private extension — manual install required.`);
-                    outputChannel.appendLine(`    Local path hint: ${localPath}`);
+                    outputChannel.appendLine(`    Local path hint: ${privateEntry.localPath ?? localPath}`);
                     if (privateEntry.note) {
                         outputChannel.appendLine(`    Note: ${privateEntry.note}`);
                     }
@@ -3088,7 +3481,7 @@ async function applyGistData(
     }
 
     if (!silent) {
-        let msg = 'Soloboi\'s Settings Sync complete: settings applied.';
+        let msg = 'DSFB Settings Sync complete: settings applied.';
         if (installedCount > 0 || uninstalledCount > 0) {
             msg += ` (extensions +${installedCount}, -${uninstalledCount})`;
         }
@@ -3124,10 +3517,10 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
     const token = await authManager.getToken();
     if (!token) return;
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const gistId = config.get<string>('gistId');
     if (!gistId) {
-        vscode.window.showWarningMessage("Soloboi's Settings Sync: Gist ID is not set.");
+        vscode.window.showWarningMessage("DSFB Settings Sync: Gist ID is not set.");
         return;
     }
 
@@ -3135,7 +3528,7 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
     try {
         const history = await gistService.getGistHistory(gistId, token);
         if (!history || history.length === 0) {
-            vscode.window.showInformationMessage("Soloboi's Settings Sync: No Gist history found.");
+            vscode.window.showInformationMessage("DSFB Settings Sync: No Gist history found.");
             updateStatusBar('idle');
             return;
         }
@@ -3183,10 +3576,10 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
 
             await applyGistData(gistData, context, false, true, true);
             updateStatusBar('idle');
-            vscode.window.showInformationMessage("Soloboi's Settings Sync: Restored selected revision.");
+            vscode.window.showInformationMessage("DSFB Settings Sync: Restored selected revision.");
         }
     } catch (err: any) {
-        vscode.window.showErrorMessage(`Soloboi's Settings Sync: Failed to load history: ${err.message}`);
+        vscode.window.showErrorMessage(`DSFB Settings Sync: Failed to load history: ${err.message}`);
         updateStatusBar('error');
     }
 }
@@ -3194,7 +3587,7 @@ async function showGistHistory(context: vscode.ExtensionContext): Promise<void> 
 // ─── 도우미 함수 (Helpers) ──────────────────────────────────────────────────────────────────────────────────
 
 async function switchProfile(treeProvider: SoloboiSyncTreeProvider): Promise<void> {
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     await saveCurrentProfileFromGlobal(config);
 
     const profiles = normalizeProfiles(config.get<Record<string, unknown>>('profiles', {}));
@@ -3261,7 +3654,7 @@ async function switchProfile(treeProvider: SoloboiSyncTreeProvider): Promise<voi
     await saveCurrentProfileFromGlobal(config);
 
     treeProvider.refresh();
-    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Switched to profile "${nextProfileName}".`);
+    vscode.window.showInformationMessage(`DSFB Settings Sync: Switched to profile "${nextProfileName}".`);
 }
 
 async function selectOrCreateGist(
@@ -3277,7 +3670,7 @@ async function selectOrCreateGist(
     try {
         gists = await gistService.getUserGists(token);
     } catch (err) {
-        vscode.window.showErrorMessage("Soloboi's Settings Sync: Failed to fetch Gist list.");
+        vscode.window.showErrorMessage("DSFB Settings Sync: Failed to fetch Gist list.");
         updateStatusBar('idle');
         return null;
     }
@@ -3320,12 +3713,13 @@ async function selectOrCreateGist(
 
     if (!selected) return null;
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
 
     if ((selected as any).detail === 'NEW') {
         const gistId = await createNewGist(token, files, silent);
         if (gistId) {
             await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+            await rememberLastUsedGistId(context, gistId);
             await saveCurrentProfileFromGlobal(config);
         }
         return gistId;
@@ -3333,8 +3727,9 @@ async function selectOrCreateGist(
 
     const gistId = (selected as any).id;
     await config.update('gistId', gistId, vscode.ConfigurationTarget.Global);
+    await rememberLastUsedGistId(context, gistId);
     await saveCurrentProfileFromGlobal(config);
-    vscode.window.showInformationMessage(`Soloboi's Settings Sync: Selected existing Gist (${gistId}).`);
+    vscode.window.showInformationMessage(`DSFB Settings Sync: Selected existing Gist (${gistId}).`);
     return gistId;
 }
 
@@ -3343,7 +3738,7 @@ async function createNewGist(token: string, files: any, silent: boolean): Promis
     const hostname = os.hostname();
     const description = `${GIST_DESCRIPTION_PREFIX}${hostname} (${dateStr})`;
 
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const isPublic = config.get<boolean>('publicGist', false);
 
     try {
@@ -3357,14 +3752,14 @@ async function createNewGist(token: string, files: any, silent: boolean): Promis
 
         if (!silent) {
             vscode.window.showInformationMessage(
-                `Soloboi's Settings Sync: New Gist created. (machine: ${hostname})`
+                `DSFB Settings Sync: New Gist created. (machine: ${hostname})`
             );
         }
         return result.id;
     } catch (err: any) {
-        console.error("Soloboi's Settings Sync: Create Gist error", err);
+        console.error("DSFB Settings Sync: Create Gist error", err);
         if (!silent) {
-            vscode.window.showErrorMessage(`Soloboi's Settings Sync: Failed to create Gist: ${err.message}`);
+            vscode.window.showErrorMessage(`DSFB Settings Sync: Failed to create Gist: ${err.message}`);
         }
         updateStatusBar('error');
         return null;
@@ -3372,7 +3767,7 @@ async function createNewGist(token: string, files: any, silent: boolean): Promis
 }
 
 function buildGistFiles(): Record<string, { content: string }> | null {
-    const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+    const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
     const syncOptions = getSyncOptions(config);
     const isPublicGist = config.get<boolean>('publicGist', false);
 
@@ -3577,11 +3972,11 @@ function updateStatusBar(state: 'idle' | 'uploading' | 'downloading' | 'error' |
             setTimeout(() => updateStatusBar('idle'), 5000);
             break;
         case 'logged-out':
-            statusBarItem.text = '$(sign-in) Soloboi\'s Settings Sync';
+            statusBarItem.text = '$(sign-in) DSFB Settings Sync';
             statusBarItem.tooltip = 'Click to sign in and sync settings.';
             break;
         default: {
-            statusBarItem.text = '$(sync) Soloboi\'s Settings Sync';
+            statusBarItem.text = '$(sync) DSFB Settings Sync';
             const lastSync = lastSyncTime;
             if (lastSync) {
                 statusBarItem.tooltip = `Last sync: ${new Date(lastSync).toLocaleString()}\nClick to sync now.`;
@@ -3603,26 +3998,72 @@ async function installFromVsixUrl(
     upd: ExtensionUpdateInfo,
     log: vscode.OutputChannel
 ): Promise<void> {
-    const registry = marketplaceManager.getRegistry();
-    const baseUrl = registry[upd.marketplaceDomain];
-    if (!baseUrl) {
-        log.appendLine(`[VSIX Install] No URL found for marketplace "${upd.marketplaceDomain}" — skipping ${upd.id}`);
-        return;
+    const hadExplicitVsixUrl = Boolean(upd.vsixUrl);
+    let vsixUrl = upd.vsixUrl;
+    let sourceLabel = 'direct URL';
+    let vsixFile = 'download.vsix';
+
+    if (!vsixUrl) {
+        const registry = marketplaceManager.getRegistry();
+        const baseUrl = registry[upd.marketplaceDomain];
+        if (!baseUrl) {
+            log.appendLine(`[VSIX Install] No URL found for marketplace "${upd.marketplaceDomain}" — skipping ${upd.id}`);
+            return;
+        }
+
+        const parts = upd.id.split('.');
+        if (parts.length < 2) { return; }
+        const ns = parts[0];
+        const name = parts.slice(1).join('.');
+        vsixFile = `${ns}.${name}-${upd.latestVersion}.vsix`;
+        vsixUrl = `${baseUrl.replace(/\/$/, '')}/api/${encodeURIComponent(ns)}/${encodeURIComponent(name)}/${encodeURIComponent(upd.latestVersion)}/file/${vsixFile}`;
+        sourceLabel = upd.marketplaceDomain;
+    } else {
+        try {
+            const parsed = new URL(vsixUrl);
+            const lastSegment = parsed.pathname.split('/').filter(Boolean).pop();
+            if (lastSegment) {
+                vsixFile = lastSegment;
+            }
+        } catch {
+            // ignore malformed URL here; download step will surface the real error
+        }
     }
 
-    // Build VSIX URL: OpenVSX convention — /api/{ns}/{name}/{version}/file/{ns}.{name}-{version}.vsix
-    const parts = upd.id.split('.');
-    if (parts.length < 2) { return; }
-    const ns = parts[0];
-    const name = parts.slice(1).join('.');
-    const vsixFile = `${ns}.${name}-${upd.latestVersion}.vsix`;
-    const vsixUrl = `${baseUrl.replace(/\/$/, '')}/api/${encodeURIComponent(ns)}/${encodeURIComponent(name)}/${encodeURIComponent(upd.latestVersion)}/file/${vsixFile}`;
-
-    const tmpPath = path.join(os.tmpdir(), `soloboi-sync-${vsixFile}`);
-    log.appendLine(`[VSIX Install] Downloading ${upd.id}@${upd.latestVersion} from ${upd.marketplaceDomain}...`);
+    const tmpPath = path.join(os.tmpdir(), `dsfb-settings-sync-${vsixFile}`);
+    const candidateUrls = getVsixDownloadCandidates(vsixUrl, upd.latestVersion, upd.id, {
+        allowGitHubGuesses: !hadExplicitVsixUrl
+    });
+    log.appendLine(`[VSIX Install] Downloading ${upd.id}@${upd.latestVersion} from ${sourceLabel}...`);
 
     try {
-        await downloadFile(vsixUrl, tmpPath);
+        let downloaded = false;
+        let lastError: unknown;
+
+        for (let index = 0; index < candidateUrls.length; index++) {
+            const candidateUrl = candidateUrls[index];
+            try {
+                if (index > 0) {
+                    log.appendLine(`[VSIX Install] Retrying ${upd.id}@${upd.latestVersion} with alternate GitHub release URL...`);
+                }
+                await downloadFile(candidateUrl, tmpPath);
+                downloaded = true;
+                break;
+            } catch (err) {
+                lastError = err;
+                const message = toErrorMessage(err);
+                if (index < candidateUrls.length - 1 && message.includes('HTTP 404')) {
+                    log.appendLine(`[VSIX Install] ${message}`);
+                    continue;
+                }
+                throw err;
+            }
+        }
+
+        if (!downloaded) {
+            throw lastError ?? new Error(`Failed to download VSIX for ${upd.id}`);
+        }
+
         await vscode.commands.executeCommand('workbench.extensions.installExtension', vscode.Uri.file(tmpPath));
         log.appendLine(`[VSIX Install] Installed ${upd.id}@${upd.latestVersion}`);
     } finally {
@@ -3660,9 +4101,131 @@ function downloadFile(url: string, destPath: string): Promise<void> {
     });
 }
 
+async function installFromLocalVsixPath(localPath: string, extensionId: string, log: vscode.OutputChannel): Promise<void> {
+    const resolvedPath = expandUserPath(localPath);
+    const stat = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath) : null;
+    if (!stat?.isFile()) {
+        throw new Error(`Local VSIX file not found: ${resolvedPath}`);
+    }
+
+    await vscode.commands.executeCommand('workbench.extensions.installExtension', vscode.Uri.file(resolvedPath));
+    log.appendLine(`[VSIX Install] Installed ${extensionId} from local path ${resolvedPath}`);
+}
+
+function getVsixDownloadCandidates(
+    vsixUrl: string,
+    version: string,
+    extensionId: string,
+    options: { allowGitHubGuesses?: boolean } = {}
+): string[] {
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    const addCandidate = (value?: string) => {
+        if (!value || seen.has(value)) {
+            return;
+        }
+        seen.add(value);
+        candidates.push(value);
+    };
+
+    addCandidate(vsixUrl);
+
+    try {
+        const parsed = new URL(vsixUrl);
+        if (parsed.hostname !== 'github.com') {
+            return candidates;
+        }
+
+        const pathParts = parsed.pathname.split('/').filter(Boolean);
+        if (options.allowGitHubGuesses === false) {
+            const exactAssetName = pathParts[pathParts.length - 1];
+            if (exactAssetName && pathParts.length >= 2) {
+                addCandidate(`https://github.com/${pathParts[0]}/${pathParts[1]}/releases/latest/download/${exactAssetName}`);
+            }
+            return candidates;
+        }
+
+        if (pathParts.length < 6 || pathParts[2] !== 'releases' || pathParts[3] !== 'download') {
+            return candidates;
+        }
+
+        const owner = pathParts[0];
+        const repo = pathParts[1];
+        const currentTag = pathParts[4];
+        const assetPath = pathParts.slice(5).join('/');
+        const normalizedVersion = (version || '').trim().replace(/^v/i, '');
+        const extensionIdParts = (extensionId || '').split('.').filter(Boolean);
+        const extensionName = extensionIdParts[extensionIdParts.length - 1] || '';
+        const assetSegments = assetPath.split('/');
+        const originalAssetName = assetSegments.pop() || '';
+        const assetDir = assetSegments.join('/');
+        const assetNameCandidates = getGitHubReleaseAssetNameCandidates(originalAssetName, normalizedVersion, extensionId, repo);
+        const tagVariants = [
+            currentTag,
+            normalizedVersion,
+            normalizedVersion ? `v${normalizedVersion}` : '',
+            extensionName ? `${extensionName}-v${normalizedVersion}` : '',
+            extensionName ? `${extensionName}-${normalizedVersion}` : ''
+        ].filter(Boolean);
+
+        for (const tag of tagVariants) {
+            for (const assetName of assetNameCandidates) {
+                const normalizedAssetPath = assetDir ? `${assetDir}/${assetName}` : assetName;
+                addCandidate(`https://github.com/${owner}/${repo}/releases/download/${tag}/${normalizedAssetPath}`);
+            }
+        }
+    } catch {
+        // ignore and fall back to the original URL
+    }
+
+    return candidates;
+}
+
+function getGitHubReleaseAssetNameCandidates(
+    originalAssetName: string,
+    normalizedVersion: string,
+    extensionId: string,
+    repo: string
+): string[] {
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    const add = (value?: string) => {
+        if (!value || seen.has(value)) {
+            return;
+        }
+        seen.add(value);
+        candidates.push(value);
+    };
+
+    add(originalAssetName);
+    const extensionName = extensionId.split('.').filter(Boolean).pop() || repo;
+    if (normalizedVersion) {
+        add(`${extensionName}-${normalizedVersion}.vsix`);
+        add(`${extensionName}-v${normalizedVersion}.vsix`);
+        add(`${repo}-${normalizedVersion}.vsix`);
+        add(`${repo}-v${normalizedVersion}.vsix`);
+    }
+
+    return candidates;
+}
+
 // ── Private extension path helper (Task #3) ────────────────────────────────
 
 function getExtensionLocalPath(id: string, version: string): string {
     const extDir = path.join(os.homedir(), '.vscode', 'extensions');
     return path.join(extDir, `${id.toLowerCase()}-${version}`);
+}
+
+function expandUserPath(value: string): string {
+    const input = (value || '').trim();
+    if (!input) {
+        return input;
+    }
+    if (input === '~') {
+        return os.homedir();
+    }
+    if (input.startsWith('~/') || input.startsWith('~\\')) {
+        return path.join(os.homedir(), input.slice(2));
+    }
+    return input;
 }

@@ -3,7 +3,7 @@ import { AuthManager } from './auth';
 import { GistService } from './gistService';
 import { marketplaceManager } from './marketplaceManager';
 
-const GIST_DESCRIPTION_PREFIX = "Soloboi's Settings Sync - ";
+const GIST_DESCRIPTION_PREFIX = "DSFB Settings Sync - ";
 
 type SectionId = 'sync' | 'gist' | 'settings' | 'marketplace' | 'private' | 'filters' | 'help';
 
@@ -51,7 +51,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
     private getTopLevel(): SyncTreeItem[] {
         const isLoggedIn = this.authManager?.isLoggedIn() || false;
         const accountLabel = this.authManager?.getAccountLabel();
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
 
         const items: SyncTreeItem[] = [];
 
@@ -61,7 +61,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 `GitHub: ${accountLabel}`,
                 'Click to logout from GitHub.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.logout', title: 'Logout' },
+                { command: 'dsfbSettingsSync.logout', title: 'Logout' },
                 new vscode.ThemeIcon('log-out')
             ));
         } else {
@@ -69,7 +69,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 'GitHub Login',
                 'Login to GitHub to enable sync.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.login', title: 'Login' },
+                { command: 'dsfbSettingsSync.login', title: 'Login' },
                 new vscode.ThemeIcon('log-in')
             ));
         }
@@ -106,35 +106,35 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 'Upload Settings',
                 'Back up your VS Code settings to GitHub Gist.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.uploadNow', title: 'Upload' },
+                { command: 'dsfbSettingsSync.uploadNow', title: 'Upload' },
                 new vscode.ThemeIcon('cloud-upload')
             ),
             new SyncTreeItem(
                 'Download Settings',
                 'Download settings from GitHub Gist and apply them.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.downloadNow', title: 'Download' },
+                { command: 'dsfbSettingsSync.downloadNow', title: 'Download' },
                 new vscode.ThemeIcon('cloud-download')
             ),
             new SyncTreeItem(
                 'Sync Now',
                 'Smart two-way sync: downloads remote first to safely merge, then uploads local.\n\n⚠️ Different from "Upload → Download" — if download fails, upload is blocked to protect your remote settings.\nTip: status bar icon also triggers this.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.syncNow', title: 'Sync Now' },
+                { command: 'dsfbSettingsSync.syncNow', title: 'Sync Now' },
                 new vscode.ThemeIcon('sync')
             ),
             new SyncTreeItem(
                 'View Local vs Remote Diff',
                 'Compare your local settings with the current Gist without applying changes.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.showLocalVsRemoteDiff', title: 'View Diff' },
+                { command: 'dsfbSettingsSync.showLocalVsRemoteDiff', title: 'View Diff' },
                 new vscode.ThemeIcon('diff')
             ),
         ];
     }
 
     private async getGistChildren(): Promise<SyncTreeItem[]> {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const isLoggedIn = this.authManager?.isLoggedIn() || false;
 
         const items: SyncTreeItem[] = [
@@ -142,21 +142,21 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 'Set Gist ID',
                 'Manually enter a Gist ID to use for sync.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.setGistId', title: 'Set Gist ID' },
+                { command: 'dsfbSettingsSync.setGistId', title: 'Set Gist ID' },
                 new vscode.ThemeIcon('key')
             ),
             new SyncTreeItem(
                 'Switch Profile',
                 'Switch between saved sync profiles.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.switchProfile', title: 'Switch Profile' },
+                { command: 'dsfbSettingsSync.switchProfile', title: 'Switch Profile' },
                 new vscode.ThemeIcon('account')
             ),
             new SyncTreeItem(
                 'Show History',
                 'Browse and restore a previous version of your settings.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.showHistory', title: 'Show History' },
+                { command: 'dsfbSettingsSync.showHistory', title: 'Show History' },
                 new vscode.ThemeIcon('history')
             ),
         ];
@@ -183,7 +183,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                                 (isCurrent ? '\u2713 ' : '  ') + label + (g.public ? ' [public]' : ' [private]'),
                                 `Gist ID: ${g.id}\nVisibility: ${g.public ? 'Public' : 'Private'}\nLast updated: ${new Date(g.updated_at).toLocaleString()}`,
                                 vscode.TreeItemCollapsibleState.None,
-                                { command: 'soloboisSettingsSync.selectGist', title: 'Select Gist', arguments: [g.id] },
+                                { command: 'dsfbSettingsSync.selectGist', title: 'Select Gist', arguments: [g.id] },
                                 new vscode.ThemeIcon(isCurrent ? 'check' : (g.public ? 'globe' : 'lock'))
                             ));
                         }
@@ -198,7 +198,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
     }
 
     private getSettingsChildren(): SyncTreeItem[] {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const isPublic = config.get<boolean>('publicGist', false);
 
         return [
@@ -206,21 +206,21 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 `Public Gist: ${isPublic ? 'ON' : 'OFF'}`,
                 `New Gists will be created as ${isPublic ? 'public (visible to anyone)' : 'private'}. Click to toggle.`,
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.togglePublicGist', title: 'Toggle Public Gist' },
+                { command: 'dsfbSettingsSync.togglePublicGist', title: 'Toggle Public Gist' },
                 new vscode.ThemeIcon(isPublic ? 'globe' : 'lock')
             ),
             new SyncTreeItem(
                 'Share Your Settings',
                 'Create a public snapshot of your settings and copy a shareable link.\nSecrets are automatically masked before sharing.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.shareSettings', title: 'Share Your Settings' },
+                { command: 'dsfbSettingsSync.shareSettings', title: 'Share Your Settings' },
                 new vscode.ThemeIcon('link-external')
             ),
         ];
     }
 
     private getMarketplaceChildren(): SyncTreeItem[] {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const items: SyncTreeItem[] = [];
 
         const marketplaces = marketplaceManager.getOrderedMarketplaces();
@@ -238,7 +238,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                     entry.domain,
                     `URL: ${entry.url}\n\n🗑 Click to remove this marketplace.`,
                     vscode.TreeItemCollapsibleState.None,
-                    { command: 'soloboisSettingsSync.removeMarketplace', title: 'Remove Marketplace', arguments: [entry.domain] },
+                    { command: 'dsfbSettingsSync.removeMarketplace', title: 'Remove Marketplace', arguments: [entry.domain] },
                     new vscode.ThemeIcon('link')
                 ));
             }
@@ -248,14 +248,14 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             'Add Marketplace',
             'Register a new OpenVSX-compatible marketplace URL.',
             vscode.TreeItemCollapsibleState.None,
-            { command: 'soloboisSettingsSync.addMarketplace', title: 'Add Marketplace' },
+            { command: 'dsfbSettingsSync.addMarketplace', title: 'Add Marketplace' },
             new vscode.ThemeIcon('add')
         ));
         items.push(new SyncTreeItem(
             'Scan Order',
             'Change the order in which marketplaces are checked as fallback.',
             vscode.TreeItemCollapsibleState.None,
-            { command: 'soloboisSettingsSync.reorderMarketplace', title: 'Scan Order' },
+            { command: 'dsfbSettingsSync.reorderMarketplace', title: 'Scan Order' },
             new vscode.ThemeIcon('list-ordered')
         ));
 
@@ -264,21 +264,21 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             `Auto-Update: ${autoUpdate ? 'ON' : 'OFF'}`,
             `Automatically install updates from custom marketplaces. Click to toggle.`,
             vscode.TreeItemCollapsibleState.None,
-            { command: 'soloboisSettingsSync.toggleCustomMarketplaceAutoUpdate', title: 'Toggle Auto-Update' },
+            { command: 'dsfbSettingsSync.toggleCustomMarketplaceAutoUpdate', title: 'Toggle Auto-Update' },
             new vscode.ThemeIcon(autoUpdate ? 'sync' : 'sync-ignored')
         ));
         items.push(new SyncTreeItem(
             'Check for Updates',
             'Check custom marketplaces for extension updates now.',
             vscode.TreeItemCollapsibleState.None,
-            { command: 'soloboisSettingsSync.checkCustomMarketplaceUpdates', title: 'Check Updates' },
+            { command: 'dsfbSettingsSync.checkCustomMarketplaceUpdates', title: 'Check Updates' },
             new vscode.ThemeIcon('arrow-up')
         ));
         items.push(new SyncTreeItem(
             'Health Check',
             'Check which installed extensions are available in the marketplace.',
             vscode.TreeItemCollapsibleState.None,
-            { command: 'soloboisSettingsSync.checkExtensionHealth', title: 'Health Check' },
+            { command: 'dsfbSettingsSync.checkExtensionHealth', title: 'Health Check' },
             new vscode.ThemeIcon('pulse')
         ));
 
@@ -286,7 +286,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
     }
 
     private getPrivateChildren(): SyncTreeItem[] {
-        const config = vscode.workspace.getConfiguration('soloboisSettingsSync');
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const privateExts = config.get<any[]>('privateExtensions', []);
         const items: SyncTreeItem[] = [];
 
@@ -308,7 +308,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                         '\n🗑 Click to remove from registry.'
                     ].filter(Boolean).join('\n'),
                     vscode.TreeItemCollapsibleState.None,
-                    { command: 'soloboisSettingsSync.removePrivateExtension', title: 'Remove Private Extension', arguments: [ext.id] },
+                    { command: 'dsfbSettingsSync.removePrivateExtension', title: 'Remove Private Extension', arguments: [ext.id] },
                     new vscode.ThemeIcon(ext.vsixUrl ? 'package' : 'warning')
                 ));
             }
@@ -318,7 +318,7 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
             'Register Private Extension',
             'Add a private/unlisted extension for sync guidance or auto-install.',
             vscode.TreeItemCollapsibleState.None,
-            { command: 'soloboisSettingsSync.registerPrivateExtension', title: 'Register Private Extension' },
+            { command: 'dsfbSettingsSync.registerPrivateExtension', title: 'Register Private Extension' },
             new vscode.ThemeIcon('add')
         ));
 
@@ -331,14 +331,14 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 'Ignored Extensions',
                 'Choose extensions to exclude from sync.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.configureIgnoredExtensions', title: 'Manage Ignored Extensions' },
+                { command: 'dsfbSettingsSync.configureIgnoredExtensions', title: 'Manage Ignored Extensions' },
                 new vscode.ThemeIcon('extensions')
             ),
             new SyncTreeItem(
                 'Ignored Settings',
                 'Choose setting keys to exclude from sync.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.configureIgnoredSettings', title: 'Manage Ignored Settings' },
+                { command: 'dsfbSettingsSync.configureIgnoredSettings', title: 'Manage Ignored Settings' },
                 new vscode.ThemeIcon('list-filter')
             ),
         ];
@@ -350,35 +350,35 @@ export class SoloboiSyncTreeProvider implements vscode.TreeDataProvider<SyncTree
                 'Getting Started',
                 'Open the Getting Started wizard.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.getStarted', title: 'Getting Started' },
+                { command: 'dsfbSettingsSync.getStarted', title: 'Getting Started' },
                 new vscode.ThemeIcon('rocket')
             ),
             new SyncTreeItem(
                 'Open Settings',
-                "Open Soloboi's Settings Sync settings.",
+                "Open DSFB Settings Sync settings.",
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.openSettings', title: 'Open Settings' },
+                { command: 'dsfbSettingsSync.openSettings', title: 'Open Settings' },
                 new vscode.ThemeIcon('gear')
             ),
             new SyncTreeItem(
                 'Open GitHub Repository',
                 'Open the project repository in your browser.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.openRepository', title: 'Open Repository' },
+                { command: 'dsfbSettingsSync.openRepository', title: 'Open Repository' },
                 new vscode.ThemeIcon('mark-github')
             ),
             new SyncTreeItem(
                 'Report an Issue',
                 'Open GitHub issues to report a bug or request a feature.',
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.reportIssue', title: 'Report Issue' },
+                { command: 'dsfbSettingsSync.reportIssue', title: 'Report Issue' },
                 new vscode.ThemeIcon('bug')
             ),
             new SyncTreeItem(
                 'View Log',
-                "Open Soloboi's Settings Sync log channel.",
+                "Open DSFB Settings Sync log channel.",
                 vscode.TreeItemCollapsibleState.None,
-                { command: 'soloboisSettingsSync.showLog', title: 'View Log' },
+                { command: 'dsfbSettingsSync.showLog', title: 'View Log' },
                 new vscode.ThemeIcon('output')
             ),
         ];

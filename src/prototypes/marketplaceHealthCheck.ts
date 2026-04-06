@@ -5,7 +5,7 @@ import * as https from "https";
  *
  * 사용법:
  *   1. 확인할 익스텐션 목록을 { publisher, name } 형태로 준비한다.
- *      예: [{ publisher: 'soloboi', name: 'solobois-settings-sync' }]
+ *      예: [{ publisher: 'soloboi', name: 'dsfb-settings-sync' }]
  *   2. checkMarketplaceHealth({ extensions }) 호출.
  *   3. 결과의 status를 확인:
  *      - 'active'    → 마켓플레이스에 정상적으로 존재
