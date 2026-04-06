@@ -478,13 +478,21 @@ export class SettingsManager {
      */
     getStatusBarStateSourcePath(requireExisting: boolean = true): { path: string; source: 'storage.json' | 'state.vscdb' } | null {
         const storagePath = this.getStatusBarStoragePath(requireExisting);
+        const dbPath = this.getStatusBarStateDbPath(requireExisting);
+
         if (storagePath && (!requireExisting || fs.existsSync(storagePath))) {
-            return { path: storagePath, source: 'storage.json' };
+            const storageState = this.readStatusBarStateFromStorage(storagePath);
+            if (storageState) {
+                return { path: storagePath, source: 'storage.json' };
+            }
         }
 
-        const dbPath = this.getStatusBarStateDbPath(requireExisting);
         if (dbPath && (!requireExisting || fs.existsSync(dbPath))) {
             return { path: dbPath, source: 'state.vscdb' };
+        }
+
+        if (storagePath && (!requireExisting || fs.existsSync(storagePath))) {
+            return { path: storagePath, source: 'storage.json' };
         }
 
         return null;
@@ -578,24 +586,37 @@ export class SettingsManager {
      * Apply status bar-related UI state into storage.json or state.vscdb (best-effort).
      * Only keys containing "statusbar" are written.
      */
-    writeStatusBarState(remoteContent: string): { applied: boolean; message?: string } {
+    writeStatusBarState(
+        remoteContent: string
+    ): { applied: boolean; message?: string; target?: 'storage.json' | 'state.vscdb' } {
         const storagePath = this.getStatusBarStoragePath(true);
+        const dbPath = this.getStatusBarStateDbPath(true);
+
         if (storagePath) {
-            return this.writeStatusBarStateToStorage(storagePath, remoteContent);
+            const storageState = this.readStatusBarStateFromStorage(storagePath);
+            if (storageState || !dbPath) {
+                return this.writeStatusBarStateToStorage(storagePath, remoteContent);
+            }
         }
 
-        const dbPath = this.getStatusBarStateDbPath(true);
         if (dbPath) {
             return this.writeStatusBarStateToStateDb(dbPath, remoteContent);
+        }
+
+        if (storagePath) {
+            return this.writeStatusBarStateToStorage(storagePath, remoteContent);
         }
 
         return { applied: false, message: 'storage.json or state.vscdb not found' };
     }
 
-    private writeStatusBarStateToStorage(storagePath: string, remoteContent: string): { applied: boolean; message?: string } {
+    private writeStatusBarStateToStorage(
+        storagePath: string,
+        remoteContent: string
+    ): { applied: boolean; message?: string; target?: 'storage.json' } {
         const remoteObj = this.parseJsonc(remoteContent);
         if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
-            return { applied: false, message: 'Invalid status bar data' };
+            return { applied: false, message: 'Invalid status bar data', target: 'storage.json' };
         }
         this.applyVisibleStatusBarItems(remoteObj as Record<string, any>);
 
@@ -612,23 +633,26 @@ export class SettingsManager {
 
         const appliedCount = this.applyStatusBarEntries(localObj, remoteObj);
         if (appliedCount === 0) {
-            return { applied: false, message: 'No status bar keys to apply' };
+            return { applied: false, message: 'No status bar keys to apply', target: 'storage.json' };
         }
 
         this.writeFileIfChanged(storagePath, JSON.stringify(localObj, null, 2));
-        return { applied: true };
+        return { applied: true, target: 'storage.json' };
     }
 
-    private writeStatusBarStateToStateDb(dbPath: string, remoteContent: string): { applied: boolean; message?: string } {
+    private writeStatusBarStateToStateDb(
+        dbPath: string,
+        remoteContent: string
+    ): { applied: boolean; message?: string; target?: 'state.vscdb' } {
         const remoteObj = this.parseJsonc(remoteContent);
         if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
-            return { applied: false, message: 'Invalid status bar data' };
+            return { applied: false, message: 'Invalid status bar data', target: 'state.vscdb' };
         }
         this.applyVisibleStatusBarItems(remoteObj as Record<string, any>);
 
         const entries = Object.entries(remoteObj).filter(([key]) => this.isWritableStatusBarKey(key));
         if (entries.length === 0) {
-            return { applied: false, message: 'No status bar keys to apply' };
+            return { applied: false, message: 'No status bar keys to apply', target: 'state.vscdb' };
         }
 
         const statements: string[] = ['BEGIN;'];
@@ -642,10 +666,14 @@ export class SettingsManager {
 
         const result = cp.spawnSync('sqlite3', [dbPath, statements.join('\n')], { encoding: 'utf8' });
         if (result.error || result.status !== 0) {
-            return { applied: false, message: 'Failed to write status bar state to state.vscdb' };
+            return {
+                applied: false,
+                message: 'Failed to write status bar state to state.vscdb',
+                target: 'state.vscdb'
+            };
         }
 
-        return { applied: true };
+        return { applied: true, target: 'state.vscdb' };
     }
 
     private applyStatusBarEntries(target: Record<string, any>, source: Record<string, any>): number {

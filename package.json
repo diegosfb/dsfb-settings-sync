@@ -2,7 +2,7 @@
   "name": "dsfb-settings-sync",
   "displayName": "DSFB Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "diegosfb",
   "engines": {
     "vscode": "^1.90.0"

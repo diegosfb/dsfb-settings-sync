@@ -3301,6 +3301,9 @@ async function applyGistData(
                 hasChanges = true;
             }
             const result = settingsManager.writeStatusBarState(remoteStatusBar);
+            if (result.target) {
+                outputChannel.appendLine(`  · target: ${result.target}`);
+            }
             if (result.applied) {
                 outputChannel.appendLine('  + applied status bar UI state');
             } else if (result.message) {
