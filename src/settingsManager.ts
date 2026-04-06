@@ -509,6 +509,13 @@ export class SettingsManager {
             stateObj['dsfbSettingsSync.statusBarItems'] = manualItems;
         }
 
+        if (stateObj) {
+            const visibleResult = this.computeVisibleStatusBarItems(stateObj, manualItems);
+            if (visibleResult.shouldInclude) {
+                stateObj['dsfbSettingsSync.statusBarVisibleItems'] = visibleResult.items;
+            }
+        }
+
         if (!stateObj || Object.keys(stateObj).length === 0) {
             return null;
         }
@@ -586,6 +593,7 @@ export class SettingsManager {
         if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
             return { applied: false, message: 'Invalid status bar data' };
         }
+        this.applyVisibleStatusBarItems(remoteObj as Record<string, any>);
 
         let localObj: Record<string, any> = {};
         try {
@@ -612,6 +620,7 @@ export class SettingsManager {
         if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
             return { applied: false, message: 'Invalid status bar data' };
         }
+        this.applyVisibleStatusBarItems(remoteObj as Record<string, any>);
 
         const entries = Object.entries(remoteObj).filter(([key]) => this.isWritableStatusBarKey(key));
         if (entries.length === 0) {
@@ -647,6 +656,50 @@ export class SettingsManager {
         return appliedCount;
     }
 
+    private applyVisibleStatusBarItems(remoteObj: Record<string, any>): void {
+        const visibleRaw = remoteObj['dsfbSettingsSync.statusBarVisibleItems'];
+        if (!Array.isArray(visibleRaw)) {
+            return;
+        }
+        const visibleItems = visibleRaw
+            .map(item => this.normalizeStatusBarItemId(item))
+            .filter((item): item is string => !!item);
+        if (visibleItems.length === 0) {
+            return;
+        }
+
+        const localStateRaw = this.readStatusBarState();
+        if (!localStateRaw) {
+            return;
+        }
+        const localStateObj = this.parseJsonc(localStateRaw);
+        if (!localStateObj || typeof localStateObj !== 'object' || Array.isArray(localStateObj)) {
+            return;
+        }
+
+        const localManualItems = this.getStatusBarItemsFromConfig();
+        const knownItems = this.collectStatusBarItemIds(localStateObj as Record<string, any>, localManualItems);
+        if (knownItems.length === 0) {
+            return;
+        }
+
+        const visibleSet = new Set(visibleItems.map(item => item.toLowerCase()));
+        const hiddenItems = knownItems.filter(item => !visibleSet.has(item.toLowerCase()));
+
+        let hiddenKey = Object.keys(remoteObj).find(key => {
+            const lower = key.toLowerCase();
+            return lower.includes('statusbar')
+                && lower.includes('hidden')
+                && Array.isArray((remoteObj as Record<string, any>)[key]);
+        });
+
+        if (!hiddenKey) {
+            hiddenKey = 'workbench.statusbar.hidden';
+        }
+
+        remoteObj[hiddenKey] = hiddenItems;
+    }
+
     private getStatusBarItemsFromConfig(): string[] {
         const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const raw = config.get<string[]>('statusBarItems', []);
@@ -658,7 +711,8 @@ export class SettingsManager {
     }
 
     private isStatusBarMetaKey(key: string): boolean {
-        return key === 'dsfbSettingsSync.statusBarItems';
+        return key === 'dsfbSettingsSync.statusBarItems'
+            || key === 'dsfbSettingsSync.statusBarVisibleItems';
     }
 
     private isWritableStatusBarKey(key: string): boolean {
@@ -691,6 +745,140 @@ export class SettingsManager {
             } catch {
                 return raw;
             }
+        }
+        return raw;
+    }
+
+    private computeVisibleStatusBarItems(stateObj: Record<string, any>, manualItems: string[]): { items: string[]; shouldInclude: boolean } {
+        const hiddenItems = this.extractHiddenStatusBarItems(stateObj);
+        const knownItems = this.collectStatusBarItemIds(stateObj, manualItems);
+        const shouldInclude = hiddenItems.length > 0 || knownItems.length > 0 || manualItems.length > 0;
+        if (knownItems.length === 0) {
+            return { items: [], shouldInclude };
+        }
+        const hiddenSet = new Set(hiddenItems.map(item => item.toLowerCase()));
+        const visible: string[] = [];
+        for (const item of knownItems) {
+            if (!hiddenSet.has(item.toLowerCase())) {
+                visible.push(item);
+            }
+        }
+        return { items: Array.from(new Set(visible)), shouldInclude };
+    }
+
+    private extractHiddenStatusBarItems(stateObj: Record<string, any>): string[] {
+        const hidden: string[] = [];
+        for (const [key, value] of Object.entries(stateObj)) {
+            const lower = key.toLowerCase();
+            if (!lower.includes('statusbar') || !lower.includes('hidden')) {
+                continue;
+            }
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    const normalized = this.normalizeStatusBarItemId(item);
+                    if (normalized) {
+                        hidden.push(normalized);
+                    }
+                }
+            }
+        }
+        return Array.from(new Set(hidden));
+    }
+
+    private collectStatusBarItemIds(stateObj: Record<string, any>, manualItems: string[]): string[] {
+        const items = new Set<string>();
+        for (const item of manualItems) {
+            const normalized = this.normalizeStatusBarItemId(item);
+            if (normalized) {
+                items.add(normalized);
+            }
+        }
+
+        for (const [key, value] of Object.entries(stateObj)) {
+            if (!key.toLowerCase().includes('statusbar')) {
+                continue;
+            }
+
+            if (Array.isArray(value)) {
+                for (const entry of value) {
+                    const normalized = this.normalizeStatusBarItemId(entry);
+                    if (normalized) {
+                        items.add(normalized);
+                    }
+                }
+                continue;
+            }
+
+            if (!value || typeof value !== 'object') {
+                continue;
+            }
+
+            const objValue = value as Record<string, any>;
+
+            if (Array.isArray(objValue.items)) {
+                for (const entry of objValue.items) {
+                    const normalized = this.normalizeStatusBarItemId(entry?.id ?? entry?.identifier ?? entry);
+                    if (normalized) {
+                        items.add(normalized);
+                    }
+                }
+            }
+
+            if (Array.isArray(objValue.entries)) {
+                for (const entry of objValue.entries) {
+                    const normalized = this.normalizeStatusBarItemId(entry?.id ?? entry?.identifier ?? entry);
+                    if (normalized) {
+                        items.add(normalized);
+                    }
+                }
+            }
+
+            for (const mapKey of Object.keys(objValue)) {
+                if (!this.looksLikeStatusBarItemId(mapKey)) {
+                    continue;
+                }
+                const normalized = this.normalizeStatusBarItemId(mapKey);
+                if (normalized) {
+                    items.add(normalized);
+                }
+            }
+        }
+
+        return Array.from(items);
+    }
+
+    private looksLikeStatusBarItemId(value: string): boolean {
+        const raw = String(value || '').trim();
+        if (!raw || raw.length < 3) {
+            return false;
+        }
+        const lower = raw.toLowerCase();
+        if (lower.includes('statusbar') || lower.includes('workbench')) {
+            return false;
+        }
+        if (lower.startsWith('dsfbsettingssync.')) {
+            return false;
+        }
+        if (/\s/.test(raw)) {
+            return false;
+        }
+        return raw.includes('.') || raw.includes(':') || raw.includes('-') || raw.includes('_');
+    }
+
+    private normalizeStatusBarItemId(value: any): string | null {
+        const raw = String(value ?? '').trim();
+        if (!raw) {
+            return null;
+        }
+        const lower = raw.toLowerCase();
+        if (lower.includes('statusbar.')) {
+            return null;
+        }
+        if (lower.startsWith('dsfbsettingssync.')) {
+            return null;
+        }
+        if (/\s/.test(raw)) {
+            return null;
         }
         return raw;
     }

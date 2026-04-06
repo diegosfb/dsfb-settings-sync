@@ -139,6 +139,7 @@ Setting | Default | Description
 ## Tips (Status Bar IDs)
 
 - Run the command `DSFB Settings Sync: Copy Status Bar Item IDs` to copy the IDs from `workbench.statusbar.hidden` (hide items first if needed).
+- `status-bar.json` now includes `dsfbSettingsSync.statusBarVisibleItems` as a best-effort list of visible item IDs for reference across machines. For a complete list, populate `dsfbSettingsSync.statusBarItems` with the items you care about.
 
 - If the Gist is not owned by your currently logged-in GitHub account, extension install/uninstall is blocked by default.
 - To allow extension changes for a specific Gist, set `dsfbSettingsSync.gistTrust` for that Gist ID to `"trusted"`.
