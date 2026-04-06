@@ -107,14 +107,14 @@ async function runCheckExtensionHealthCommand(
     try {
         const token = await dependencies.authManager.getToken();
         if (!token) {
-            vscode.window.showErrorMessage('GitHub 로그인 후 다시 시도해 주세요.');
+            vscode.window.showErrorMessage('Please sign in to GitHub and try again.');
             return;
         }
 
         const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const gistId = (config.get<string>('gistId', '') || '').trim();
         if (!gistId) {
-            vscode.window.showErrorMessage('Gist ID가 설정되어 있지 않습니다.');
+            vscode.window.showErrorMessage('Gist ID is not configured.');
             return;
         }
 
@@ -167,15 +167,15 @@ async function runCheckExtensionHealthCommand(
         if (flagged.length > 0) {
             showViewReportMessage(
                 'warning',
-                `마켓플레이스 헬스체크 완료: deprecated/missing 항목 ${flagged.length}개를 확인했습니다.`,
+                `Marketplace health check completed: found ${flagged.length} deprecated or missing item(s).`,
                 dependencies.outputChannel
             );
             return;
         }
 
-        vscode.window.showInformationMessage('마켓플레이스 헬스체크가 완료되었습니다.');
+        vscode.window.showInformationMessage('Marketplace health check completed.');
     } catch (err: any) {
-        vscode.window.showErrorMessage(`익스텐션 헬스체크 실패: ${err.message}`);
+        vscode.window.showErrorMessage(`Extension health check failed: ${err.message}`);
     }
 }
 
@@ -190,7 +190,7 @@ async function runSettingsE2ETestCommand(
         });
 
         if (result.errorLogMatches.length === 0) {
-            vscode.window.showInformationMessage('설정 E2E 테스트 통과');
+            vscode.window.showInformationMessage('Settings E2E test passed.');
             return;
         }
 
@@ -214,10 +214,10 @@ async function runSettingsE2ETestCommand(
 
         showViewReportMessage(
             'warning',
-            `설정 E2E 테스트에서 오류 로그 ${result.errorLogMatches.length}개가 감지되었습니다.`,
+            `Settings E2E test detected ${result.errorLogMatches.length} error log entr${result.errorLogMatches.length === 1 ? 'y' : 'ies'}.`,
             dependencies.outputChannel
         );
     } catch (err: any) {
-        vscode.window.showErrorMessage(`설정 E2E 테스트 실패: ${err.message}`);
+        vscode.window.showErrorMessage(`Settings E2E test failed: ${err.message}`);
     }
 }

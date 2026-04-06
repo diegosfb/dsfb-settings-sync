@@ -58,7 +58,7 @@ export class AuthManager {
     this.onDidChangeEmitter.fire(this.session);
     if (this.session) {
       vscode.window.showInformationMessage(
-        `DSFB Settings Sync: GitHub??濡쒓렇?몃릺?덉뒿?덈떎. (${this.session.account.label})`,
+        `DSFB Settings Sync: Signed in to GitHub as ${this.session.account.label}.`,
       );
     }
     return this.session;
@@ -105,7 +105,7 @@ export class AuthManager {
     await this.clearStoredDeviceCodeSession();
     this.onDidChangeEmitter.fire(null);
     vscode.window.showInformationMessage(
-      'Soloboi\'s Settings Sync: GitHub?먯꽌 濡쒓렇?꾩썐?섏뿀?듬땲??',
+      "DSFB Settings Sync: Signed out of GitHub.",
     );
   }
 
@@ -123,7 +123,7 @@ export class AuthManager {
     const clientId = this.getDeviceCodeClientId();
     if (!clientId) {
       vscode.window.showErrorMessage(
-        `DSFB Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${originalError.message}`,
+        `DSFB Settings Sync: GitHub sign-in failed. ${originalError.message}`,
       );
       return null;
     }
@@ -139,8 +139,8 @@ export class AuthManager {
 
       const action = deviceCode.user_code ? 'Copy Code' : undefined;
       const prompt = deviceCode.user_code
-        ? `釉뚮씪?곗??먯꽌 GitHub ?몄쬆???꾨즺?섏꽭?? 肄붾뱶: ${deviceCode.user_code}`
-        : '釉뚮씪?곗??먯꽌 GitHub ?몄쬆???꾨즺?섏꽭??';
+        ? `Complete GitHub sign-in in your browser. Code: ${deviceCode.user_code}`
+        : 'Complete GitHub sign-in in your browser.';
       if (action) {
         vscode.window.showInformationMessage(prompt, action).then(selection => {
           if (selection === action && deviceCode.user_code) {
@@ -174,7 +174,7 @@ export class AuthManager {
       return session;
     } catch (err: any) {
       vscode.window.showErrorMessage(
-        `DSFB Settings Sync: GitHub 濡쒓렇???ㅽ뙣 ??${err.message}`,
+        `DSFB Settings Sync: GitHub sign-in failed. ${err.message}`,
       );
       return null;
     }
@@ -315,4 +315,3 @@ export class AuthManager {
     this.onDidChangeEmitter.dispose();
   }
 }
-
