@@ -1,5 +1,25 @@
 {
     "python.autoComplete.extraPaths": [
         "c:\\Users\\alswo\\.antigravity\\extensions\\continue.continue-0.0.412"
+    ],
+    "workbench.statusbar.hidden": [
+        "status.workspaceTrust.1651893037841",
+        "GitHub.copilot.status",
+        "status.editor.encoding",
+        "status.editor.indentation",
+        "status.editor.eol",
+        "google.geminicodeassist",
+        "googlecloudtools.cloudcode"
+    ],
+    "dsfbSettingsSync.statusBarVisibleItems": []
+    ,
+    "dsfbSettingsSync.statusBarItems": [
+        "status.workspaceTrust.1651893037841",
+        "GitHub.copilot.status",
+        "status.editor.encoding",
+        "status.editor.indentation",
+        "status.editor.eol",
+        "google.geminicodeassist",
+        "googlecloudtools.cloudcode"
     ]
 }

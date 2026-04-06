@@ -1075,6 +1075,65 @@ function filterSettingsByPlatform(settingsText: string, platform: Platform): { c
     };
 }
 
+function normalizeStatusBarItemList(raw: unknown): string[] {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    const seen = new Set<string>();
+    const items: string[] = [];
+    for (const entry of raw) {
+        const value = String(entry ?? '').trim();
+        if (!value || seen.has(value)) {
+            continue;
+        }
+        seen.add(value);
+        items.push(value);
+    }
+    return items;
+}
+
+function extractHiddenStatusBarItemsFromState(statusBarState: string | null): string[] {
+    if (!statusBarState) {
+        return [];
+    }
+    const parsed = parseJsonc(statusBarState);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return [];
+    }
+    return normalizeStatusBarItemList((parsed as Record<string, unknown>)['workbench.statusbar.hidden']);
+}
+
+function collectStatusBarItemsForUpload(settingsObj: Record<string, unknown>): string[] {
+    const manualItems = normalizeStatusBarItemList(settingsObj['dsfbSettingsSync.statusBarItems']);
+    const hiddenFromSettings = normalizeStatusBarItemList(settingsObj['workbench.statusbar.hidden']);
+    const hiddenFromState = extractHiddenStatusBarItemsFromState(settingsManager.readStatusBarState());
+    return Array.from(new Set([...hiddenFromSettings, ...hiddenFromState, ...manualItems]));
+}
+
+function ensureStatusBarItemsForUpload(settingsText: string): string {
+    const parsed = parseJsonc(settingsText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return settingsText;
+    }
+
+    const obj = { ...(parsed as Record<string, unknown>) };
+    const existingItems = normalizeStatusBarItemList(obj['dsfbSettingsSync.statusBarItems']);
+    const computedItems = collectStatusBarItemsForUpload(obj);
+
+    if (computedItems.length === 0) {
+        return settingsText;
+    }
+
+    const existingSet = new Set(existingItems);
+    const missing = computedItems.filter(item => !existingSet.has(item));
+    if (missing.length === 0) {
+        return settingsText;
+    }
+
+    obj['dsfbSettingsSync.statusBarItems'] = [...existingItems, ...missing];
+    return JSON.stringify(obj, null, 4);
+}
+
 async function filterExtensionsByMarketplace(
     extensionsJson: string
 ): Promise<{ filteredJson: string; unavailableIds: string[]; unknownIds: string[] }> {
@@ -3931,9 +3990,12 @@ function buildGistFiles(): Record<string, { content: string }> | null {
 
     if (syncOptions.syncSettings && settings) {
         const filtered = filterSettingsByPlatform(settings, currentPlatform);
-        const sanitizedSettings = isPublicGist
-            ? settingsManager.sanitizeJsonForPublicGist(filtered.content)
+        const statusBarInjected = syncOptions.syncStatusBarState
+            ? ensureStatusBarItemsForUpload(filtered.content)
             : filtered.content;
+        const sanitizedSettings = isPublicGist
+            ? settingsManager.sanitizeJsonForPublicGist(statusBarInjected)
+            : statusBarInjected;
         files['settings.json'] = { content: sanitizedSettings };
     }
 

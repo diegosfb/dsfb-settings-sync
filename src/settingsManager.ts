@@ -509,8 +509,12 @@ export class SettingsManager {
             stateObj['dsfbSettingsSync.statusBarItems'] = manualItems;
         }
 
+        const autoItems = this.getAutoStatusBarItemIds();
+        if (!stateObj && autoItems.length > 0) {
+            stateObj = {};
+        }
         if (stateObj) {
-            const visibleResult = this.computeVisibleStatusBarItems(stateObj, manualItems);
+            const visibleResult = this.computeVisibleStatusBarItems(stateObj, manualItems, autoItems);
             if (visibleResult.shouldInclude) {
                 stateObj['dsfbSettingsSync.statusBarVisibleItems'] = visibleResult.items;
             }
@@ -678,7 +682,12 @@ export class SettingsManager {
         }
 
         const localManualItems = this.getStatusBarItemsFromConfig();
-        const knownItems = this.collectStatusBarItemIds(localStateObj as Record<string, any>, localManualItems);
+        const localAutoItems = this.getAutoStatusBarItemIds();
+        const knownItems = this.collectStatusBarItemIds(
+            localStateObj as Record<string, any>,
+            localManualItems,
+            localAutoItems
+        );
         if (knownItems.length === 0) {
             return;
         }
@@ -704,6 +713,78 @@ export class SettingsManager {
         const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
         const raw = config.get<string[]>('statusBarItems', []);
         return raw.map(item => (item || '').trim()).filter(item => !!item);
+    }
+
+    private getAutoStatusBarItemIds(): string[] {
+        const items = new Set<string>();
+
+        for (const extension of vscode.extensions.all) {
+            const pkg = extension.packageJSON as Record<string, any> | undefined;
+            if (!pkg || typeof pkg !== 'object') {
+                continue;
+            }
+
+            const contributes = pkg.contributes as Record<string, any> | undefined;
+            if (!contributes || typeof contributes !== 'object') {
+                continue;
+            }
+
+            const menus = contributes.menus as Record<string, any> | undefined;
+            if (menus && typeof menus === 'object') {
+                for (const [menuId, entries] of Object.entries(menus)) {
+                    if (!String(menuId).toLowerCase().includes('statusbar')) {
+                        continue;
+                    }
+                    if (!Array.isArray(entries)) {
+                        continue;
+                    }
+                    for (const entry of entries) {
+                        const command = this.extractCommandId(entry?.command);
+                        const altCommand = this.extractCommandId(entry?.alt);
+                        const normalized = this.normalizeStatusBarItemId(command);
+                        if (normalized) {
+                            items.add(normalized);
+                        }
+                        const normalizedAlt = this.normalizeStatusBarItemId(altCommand);
+                        if (normalizedAlt) {
+                            items.add(normalizedAlt);
+                        }
+                    }
+                }
+            }
+
+            const statusBarItems = contributes.statusBarItems as unknown;
+            if (Array.isArray(statusBarItems)) {
+                for (const entry of statusBarItems) {
+                    let candidate = '';
+                    if (typeof entry === 'string') {
+                        candidate = entry;
+                    } else if (entry && typeof entry === 'object') {
+                        const record = entry as Record<string, any>;
+                        candidate = record.id ?? record.command ?? record.identifier ?? '';
+                    }
+                    const normalized = this.normalizeStatusBarItemId(candidate);
+                    if (normalized) {
+                        items.add(normalized);
+                    }
+                }
+            }
+        }
+
+        return Array.from(items);
+    }
+
+    private extractCommandId(value: any): string | null {
+        if (!value) {
+            return null;
+        }
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (typeof value === 'object' && typeof value.command === 'string') {
+            return value.command;
+        }
+        return null;
     }
 
     private isStatusBarStateKey(key: string): boolean {
@@ -749,10 +830,14 @@ export class SettingsManager {
         return raw;
     }
 
-    private computeVisibleStatusBarItems(stateObj: Record<string, any>, manualItems: string[]): { items: string[]; shouldInclude: boolean } {
+    private computeVisibleStatusBarItems(
+        stateObj: Record<string, any>,
+        manualItems: string[],
+        autoItems: string[]
+    ): { items: string[]; shouldInclude: boolean } {
         const hiddenItems = this.extractHiddenStatusBarItems(stateObj);
-        const knownItems = this.collectStatusBarItemIds(stateObj, manualItems);
-        const shouldInclude = hiddenItems.length > 0 || knownItems.length > 0 || manualItems.length > 0;
+        const knownItems = this.collectStatusBarItemIds(stateObj, manualItems, autoItems);
+        const shouldInclude = hiddenItems.length > 0 || knownItems.length > 0;
         if (knownItems.length === 0) {
             return { items: [], shouldInclude };
         }
@@ -785,9 +870,19 @@ export class SettingsManager {
         return Array.from(new Set(hidden));
     }
 
-    private collectStatusBarItemIds(stateObj: Record<string, any>, manualItems: string[]): string[] {
+    private collectStatusBarItemIds(
+        stateObj: Record<string, any>,
+        manualItems: string[],
+        autoItems: string[]
+    ): string[] {
         const items = new Set<string>();
         for (const item of manualItems) {
+            const normalized = this.normalizeStatusBarItemId(item);
+            if (normalized) {
+                items.add(normalized);
+            }
+        }
+        for (const item of autoItems) {
             const normalized = this.normalizeStatusBarItemId(item);
             if (normalized) {
                 items.add(normalized);
