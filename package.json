@@ -2,7 +2,7 @@
   "name": "dsfb-settings-sync",
   "displayName": "DSFB Settings Sync",
   "description": "Sync settings, keybindings, and extensions for Antigravity via GitHub Gist",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "diegosfb",
   "engines": {
     "vscode": "^1.90.0"
@@ -159,6 +159,11 @@
         "category": "DSFB Sync"
       },
       {
+        "command": "dsfbSettingsSync.copyStatusBarItemIds",
+        "title": "DSFB Settings Sync: Copy Status Bar Item IDs",
+        "category": "DSFB Sync"
+      },
+      {
         "command": "dsfbSettingsSync.getStarted",
         "title": "Getting Started",
         "category": "DSFB Sync"
@@ -302,6 +307,14 @@
           "type": "boolean",
           "default": false,
           "description": "Sync status bar UI state (hidden/reordered items) from storage.json when available."
+        },
+        "dsfbSettingsSync.statusBarItems": {
+          "type": "array",
+          "default": [],
+          "description": "Optional list of status bar item IDs (from the status bar context menu) to include in status-bar.json for reference across machines.",
+          "items": {
+            "type": "string"
+          }
         },
         "dsfbSettingsSync.syncAntigravityConfig": {
           "type": "boolean",

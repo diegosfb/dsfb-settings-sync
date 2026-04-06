@@ -1996,6 +1996,45 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('dsfbSettingsSync.copyStatusBarItemIds', async () => {
+            const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
+            const manualItems = (config.get<string[]>('statusBarItems', []) || [])
+                .map(item => (item || '').trim())
+                .filter(item => !!item);
+
+            const statusBarState = settingsManager.readStatusBarState();
+            let hiddenItems: string[] = [];
+            if (statusBarState) {
+                try {
+                    const parsed = JSON.parse(statusBarState) as Record<string, any>;
+                    const hidden = parsed?.['workbench.statusbar.hidden'];
+                    if (Array.isArray(hidden)) {
+                        hiddenItems = hidden.map(item => String(item || '').trim()).filter(item => !!item);
+                    }
+                } catch {
+                    // ignore parse errors and fall back to manual items
+                }
+            }
+
+            const combined = Array.from(new Set([...hiddenItems, ...manualItems]));
+            if (combined.length === 0) {
+                vscode.window.showInformationMessage(
+                    'DSFB Settings Sync: No status bar item IDs found. Tip: use "Status Bar: Hide Item" to hide items, then run this command to copy their IDs.'
+                );
+                return;
+            }
+
+            await vscode.env.clipboard.writeText(combined.join('\n'));
+            const sourceLabel = hiddenItems.length > 0
+                ? 'workbench.statusbar.hidden'
+                : 'dsfbSettingsSync.statusBarItems';
+            vscode.window.showInformationMessage(
+                `DSFB Settings Sync: Copied ${combined.length} status bar item IDs to clipboard (${sourceLabel}).`
+            );
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('dsfbSettingsSync.openRepository', async () => {
             const repoUrl = (context.extension.packageJSON?.repository?.url as string | undefined) || '';
             if (!repoUrl) {

@@ -122,6 +122,7 @@ Setting | Default | Description
 `dsfbSettingsSync.syncKeybindings` | `true` | Sync `keybindings.json`.
 `dsfbSettingsSync.syncSnippets` | `true` | Sync user snippets.
 `dsfbSettingsSync.syncStatusBarState` | `false` | Sync status bar UI state (hidden/reordered items) from `storage.json` when available.
+`dsfbSettingsSync.statusBarItems` | `[]` | Optional list of status bar item IDs to include in `status-bar.json` for reference across machines.
 `dsfbSettingsSync.syncAntigravityConfig` | `true` | Sync Antigravity-only files (`antigravity.json`, `browserAllowlist.txt`). Runtime default follows platform when unset.
 `dsfbSettingsSync.authoritativeDownload` | `false` | When true, remote `settings.json` is treated as authoritative (keys absent in remote are removed locally).
 `dsfbSettingsSync.profiles` | `{}` | Stored sync profiles (gistId, ignoredSettings, ignoredExtensions).
@@ -134,6 +135,10 @@ Setting | Default | Description
 `dsfbSettingsSync.privateExtensions` | `[]` | List of private/unlisted extensions for sync guidance (id, version, optional vsixUrl/localPath/note).
 
 ## Notes (Gist Trust)
+
+## Tips (Status Bar IDs)
+
+- Run the command `DSFB Settings Sync: Copy Status Bar Item IDs` to copy the IDs from `workbench.statusbar.hidden` (hide items first if needed).
 
 - If the Gist is not owned by your currently logged-in GitHub account, extension install/uninstall is blocked by default.
 - To allow extension changes for a specific Gist, set `dsfbSettingsSync.gistTrust` for that Gist ID to `"trusted"`.

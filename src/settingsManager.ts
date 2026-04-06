@@ -496,25 +496,27 @@ export class SettingsManager {
      */
     readStatusBarState(): string | null {
         const storagePath = this.getStatusBarStoragePath(true);
-        if (storagePath) {
-            const storageState = this.readStatusBarStateFromStorage(storagePath);
-            if (storageState) {
-                return storageState;
-            }
+        let stateObj = storagePath ? this.readStatusBarStateFromStorage(storagePath) : null;
+
+        if (!stateObj) {
+            const dbPath = this.getStatusBarStateDbPath(true);
+            stateObj = dbPath ? this.readStatusBarStateFromStateDb(dbPath) : null;
         }
 
-        const dbPath = this.getStatusBarStateDbPath(true);
-        if (dbPath) {
-            const dbState = this.readStatusBarStateFromStateDb(dbPath);
-            if (dbState) {
-                return dbState;
-            }
+        const manualItems = this.getStatusBarItemsFromConfig();
+        if (manualItems.length > 0) {
+            stateObj = stateObj ?? {};
+            stateObj['dsfbSettingsSync.statusBarItems'] = manualItems;
         }
 
-        return null;
+        if (!stateObj || Object.keys(stateObj).length === 0) {
+            return null;
+        }
+
+        return JSON.stringify(stateObj, null, 2);
     }
 
-    private readStatusBarStateFromStorage(storagePath: string): string | null {
+    private readStatusBarStateFromStorage(storagePath: string): Record<string, any> | null {
         const content = fs.readFileSync(storagePath, 'utf8');
         const parsed = this.parseJsonc(content);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -523,7 +525,7 @@ export class SettingsManager {
 
         const entries: Record<string, any> = {};
         for (const [key, value] of Object.entries(parsed)) {
-            if (key.toLowerCase().includes('statusbar')) {
+            if (this.isStatusBarStateKey(key) && !this.isStatusBarMetaKey(key)) {
                 entries[key] = value;
             }
         }
@@ -532,10 +534,10 @@ export class SettingsManager {
             return null;
         }
 
-        return JSON.stringify(entries, null, 2);
+        return entries;
     }
 
-    private readStatusBarStateFromStateDb(dbPath: string): string | null {
+    private readStatusBarStateFromStateDb(dbPath: string): Record<string, any> | null {
         const rows = this.queryStateDb(dbPath, "SELECT key, value FROM ItemTable WHERE key LIKE '%statusbar%' COLLATE NOCASE");
         if (!rows || rows.length === 0) {
             return null;
@@ -547,6 +549,9 @@ export class SettingsManager {
             if (!key) {
                 continue;
             }
+            if (this.isStatusBarMetaKey(key)) {
+                continue;
+            }
             const rawValue = typeof row.value === 'string' ? row.value : String(row.value ?? '');
             entries[key] = this.safeParseJson(rawValue);
         }
@@ -555,7 +560,7 @@ export class SettingsManager {
             return null;
         }
 
-        return JSON.stringify(entries, null, 2);
+        return entries;
     }
 
     /**
@@ -608,7 +613,7 @@ export class SettingsManager {
             return { applied: false, message: 'Invalid status bar data' };
         }
 
-        const entries = Object.entries(remoteObj).filter(([key]) => key.toLowerCase().includes('statusbar'));
+        const entries = Object.entries(remoteObj).filter(([key]) => this.isWritableStatusBarKey(key));
         if (entries.length === 0) {
             return { applied: false, message: 'No status bar keys to apply' };
         }
@@ -633,13 +638,40 @@ export class SettingsManager {
     private applyStatusBarEntries(target: Record<string, any>, source: Record<string, any>): number {
         let appliedCount = 0;
         for (const [key, value] of Object.entries(source)) {
-            if (!key.toLowerCase().includes('statusbar')) {
+            if (!this.isWritableStatusBarKey(key)) {
                 continue;
             }
             target[key] = value;
             appliedCount++;
         }
         return appliedCount;
+    }
+
+    private getStatusBarItemsFromConfig(): string[] {
+        const config = vscode.workspace.getConfiguration('dsfbSettingsSync');
+        const raw = config.get<string[]>('statusBarItems', []);
+        return raw.map(item => (item || '').trim()).filter(item => !!item);
+    }
+
+    private isStatusBarStateKey(key: string): boolean {
+        return key.toLowerCase().includes('statusbar');
+    }
+
+    private isStatusBarMetaKey(key: string): boolean {
+        return key === 'dsfbSettingsSync.statusBarItems';
+    }
+
+    private isWritableStatusBarKey(key: string): boolean {
+        if (!this.isStatusBarStateKey(key)) {
+            return false;
+        }
+        if (this.isStatusBarMetaKey(key)) {
+            return false;
+        }
+        if (key.toLowerCase().startsWith('dsfbsettingssync.')) {
+            return false;
+        }
+        return true;
     }
 
     private safeParseJson(raw: string): any {
