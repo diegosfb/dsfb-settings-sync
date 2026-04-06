@@ -298,6 +298,11 @@
           "default": true,
           "description": "Sync user snippets."
         },
+        "dsfbSettingsSync.syncStatusBarState": {
+          "type": "boolean",
+          "default": false,
+          "description": "Sync status bar UI state (hidden/reordered items) from storage.json when available."
+        },
         "dsfbSettingsSync.syncAntigravityConfig": {
           "type": "boolean",
           "default": true,
@@ -398,6 +403,7 @@
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
+    "build:vsix": "bash scripts/build-vsix.sh",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",

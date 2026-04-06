@@ -777,6 +777,7 @@ type SyncOptions = {
     syncKeybindings: boolean;
     syncSnippets: boolean;
     syncAntigravityConfig: boolean;
+    syncStatusBarState: boolean;
 };
 
 function isAntigravityPlatform(platform: Platform): boolean {
@@ -801,7 +802,8 @@ function getSyncOptions(config?: vscode.WorkspaceConfiguration): SyncOptions {
         syncExtensions: cfg.get<boolean>('syncExtensions', true),
         syncKeybindings: cfg.get<boolean>('syncKeybindings', true),
         syncSnippets: cfg.get<boolean>('syncSnippets', true),
-        syncAntigravityConfig
+        syncAntigravityConfig,
+        syncStatusBarState: cfg.get<boolean>('syncStatusBarState', false)
     };
 }
 
@@ -2181,6 +2183,13 @@ async function uploadSettings(
         const hostname = os.hostname();
         const description = `${GIST_DESCRIPTION_PREFIX}${hostname} (${dateStr})`;
         const currentGist = await gistService.getGist(gistId, token);
+        const syncOptions = getSyncOptions(config);
+        if (syncOptions.syncStatusBarState && !baseFiles['status-bar.json']) {
+            const existingStatusBar = currentGist?.files?.['status-bar.json']?.content;
+            if (existingStatusBar) {
+                baseFiles['status-bar.json'] = { content: existingStatusBar };
+            }
+        }
         const files = withSyncMetadataFiles(baseFiles, currentGist?.files);
         const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
 
@@ -2254,6 +2263,11 @@ async function openSyncDiffPanels(gistData: GistData): Promise<void> {
         const localExtIds = [...getInstalledUserExtensionIds()].map(id => ({ id }));
         const local = JSON.stringify(localExtIds, null, 2);
         filesToDiff.push({ filename: 'extensions.json', remote, local });
+    }
+    if (gistData.files['status-bar.json']) {
+        const remote = gistData.files['status-bar.json'].content || '{}';
+        const local = settingsManager.readStatusBarState() || '{}';
+        filesToDiff.push({ filename: 'status-bar.json', remote, local });
     }
 
     for (const file of filesToDiff) {
@@ -2498,6 +2512,20 @@ function setupFileWatchers(context: vscode.ExtensionContext): void {
         antigravityWatcher = vscode.workspace.createFileSystemWatcher(antiPattern);
     }
 
+    // Watch status bar UI state (storage.json) when enabled
+    const syncStatusBarState = config.get<boolean>('syncStatusBarState', false);
+    const statusBarStoragePath = syncStatusBarState
+        ? settingsManager.getStatusBarStoragePath(true)
+        : null;
+    let statusBarWatcher: vscode.FileSystemWatcher | undefined;
+    if (statusBarStoragePath) {
+        const statusBarPattern = new vscode.RelativePattern(
+            vscode.Uri.file(path.dirname(statusBarStoragePath)),
+            path.basename(statusBarStoragePath)
+        );
+        statusBarWatcher = vscode.workspace.createFileSystemWatcher(statusBarPattern);
+    }
+
     const scheduleUpload = async (reason: string) => {
         if (isAutoUploadSuspended()) {
             return;
@@ -2543,6 +2571,19 @@ function setupFileWatchers(context: vscode.ExtensionContext): void {
             void scheduleUpload('antigravity config deleted');
         });
         context.subscriptions.push(antigravityWatcher);
+    }
+
+    if (statusBarWatcher) {
+        statusBarWatcher.onDidChange(() => {
+            void scheduleUpload('status bar state changed');
+        });
+        statusBarWatcher.onDidCreate(() => {
+            void scheduleUpload('status bar state created');
+        });
+        statusBarWatcher.onDidDelete(() => {
+            void scheduleUpload('status bar state deleted');
+        });
+        context.subscriptions.push(statusBarWatcher);
     }
 }
 
@@ -2674,6 +2715,9 @@ function getLocalComparableContent(filename: string): string | null {
     if (normalized === 'snippets.json') {
         return settingsManager.readSnippets();
     }
+    if (normalized === 'status-bar.json') {
+        return settingsManager.readStatusBarState();
+    }
     if (normalized === 'antigravity.json') {
         return settingsManager.readAntigravityConfig();
     }
@@ -2708,6 +2752,9 @@ function computeHashSkipSet(
             continue;
         }
         if (normalized === 'snippets.json' && !syncOptions.syncSnippets) {
+            continue;
+        }
+        if (normalized === 'status-bar.json' && !syncOptions.syncStatusBarState) {
             continue;
         }
         if (
@@ -3101,6 +3148,30 @@ async function applyGistData(
             }
             settingsManager.writeSnippets(remoteSnippets);
             outputChannel.appendLine('  + applied snippets');
+        }
+        outputChannel.appendLine('');
+    }
+
+    if (fileMap['status-bar.json']) {
+        outputChannel.appendLine('[Status Bar]');
+        if (!syncOptions.syncStatusBarState) {
+            outputChannel.appendLine('  ! skipped by syncStatusBarState=false');
+        } else if (skipByHash.has('status-bar.json')) {
+            outputChannel.appendLine('  = skipped (hash match)');
+        } else {
+            const remoteStatusBar = fileMap['status-bar.json'].content || '{}';
+            const before = settingsManager.readStatusBarState();
+            if (hasContentChanged(before, remoteStatusBar)) {
+                hasChanges = true;
+            }
+            const result = settingsManager.writeStatusBarState(remoteStatusBar);
+            if (result.applied) {
+                outputChannel.appendLine('  + applied status bar UI state');
+            } else if (result.message) {
+                outputChannel.appendLine(`  ! skipped: ${result.message}`);
+            } else {
+                outputChannel.appendLine('  ! skipped: no applicable status bar data');
+            }
         }
         outputChannel.appendLine('');
     }
@@ -3777,6 +3848,7 @@ function buildGistFiles(): Record<string, { content: string }> | null {
     const antigravityConfig = settingsManager.readAntigravityConfig();
     const browserAllowlist = settingsManager.readBrowserAllowlist();
     const snippets = settingsManager.readSnippets();
+    const statusBarState = settingsManager.readStatusBarState();
 
     const files: Record<string, { content: string }> = {};
 
@@ -3825,6 +3897,13 @@ function buildGistFiles(): Record<string, { content: string }> | null {
                 : sensitiveDataGuard.redactJsonString(snippets, 'private').result;
             files['snippets.json'] = { content: fallbackSanitizedSnippets };
         }
+    }
+
+    if (syncOptions.syncStatusBarState && statusBarState) {
+        const sanitizedStatusBar = isPublicGist
+            ? settingsManager.sanitizeJsonForPublicGist(statusBarState)
+            : statusBarState;
+        files['status-bar.json'] = { content: sanitizedStatusBar };
     }
 
     if (Object.keys(files).length === 0) {
@@ -3928,6 +4007,7 @@ function isManagedGistFile(filename: string): boolean {
         || normalized === 'keybindings.json'
         || normalized === 'extensions.json'
         || normalized === 'snippets.json'
+        || normalized === 'status-bar.json'
         || normalized === 'sync-manifest.json'
         || normalized === 'sync-index.json'
         || normalized === 'mcp_config.json'

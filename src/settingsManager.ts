@@ -423,6 +423,103 @@ export class SettingsManager {
         return JSON.stringify(snippetFiles, null, 2);
     }
 
+    /**
+     * Locate storage.json that contains UI state such as status bar visibility.
+     * Returns null when no storage.json exists (e.g. when state is stored in state.vscdb).
+     */
+    getStatusBarStoragePath(requireExisting: boolean = true): string | null {
+        const userSettingsDir = this.getUserSettingsDir();
+        if (!userSettingsDir) {
+            return null;
+        }
+
+        const candidates = [
+            path.join(userSettingsDir, 'globalStorage', 'storage.json'),
+            path.join(userSettingsDir, 'storage.json')
+        ];
+
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+
+        return requireExisting ? null : candidates[0];
+    }
+
+    /**
+     * Read status bar-related UI state from storage.json.
+     * Only keys containing "statusbar" are captured.
+     */
+    readStatusBarState(): string | null {
+        const storagePath = this.getStatusBarStoragePath(true);
+        if (!storagePath) {
+            return null;
+        }
+
+        const content = fs.readFileSync(storagePath, 'utf8');
+        const parsed = this.parseJsonc(content);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return null;
+        }
+
+        const entries: Record<string, any> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+            if (key.toLowerCase().includes('statusbar')) {
+                entries[key] = value;
+            }
+        }
+
+        if (Object.keys(entries).length === 0) {
+            return null;
+        }
+
+        return JSON.stringify(entries, null, 2);
+    }
+
+    /**
+     * Apply status bar-related UI state into storage.json (best-effort).
+     * Only keys containing "statusbar" are written.
+     */
+    writeStatusBarState(remoteContent: string): { applied: boolean; message?: string } {
+        const storagePath = this.getStatusBarStoragePath(true);
+        if (!storagePath) {
+            return { applied: false, message: 'storage.json not found (VS Code may be using state.vscdb)' };
+        }
+
+        const remoteObj = this.parseJsonc(remoteContent);
+        if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
+            return { applied: false, message: 'Invalid status bar data' };
+        }
+
+        let localObj: Record<string, any> = {};
+        try {
+            const localRaw = fs.readFileSync(storagePath, 'utf8');
+            const parsedLocal = this.parseJsonc(localRaw);
+            if (parsedLocal && typeof parsedLocal === 'object' && !Array.isArray(parsedLocal)) {
+                localObj = parsedLocal as Record<string, any>;
+            }
+        } catch {
+            // fallback to empty object
+        }
+
+        let appliedCount = 0;
+        for (const [key, value] of Object.entries(remoteObj)) {
+            if (!key.toLowerCase().includes('statusbar')) {
+                continue;
+            }
+            localObj[key] = value;
+            appliedCount++;
+        }
+
+        if (appliedCount === 0) {
+            return { applied: false, message: 'No status bar keys to apply' };
+        }
+
+        this.writeFileIfChanged(storagePath, JSON.stringify(localObj, null, 2));
+        return { applied: true };
+    }
+
     // ?? Write Operations ?????????????????????????????????????????????
 
     /**
@@ -460,6 +557,12 @@ export class SettingsManager {
         const allowlistPath = this.getBrowserAllowlistPath();
         if (allowlistPath && fs.existsSync(allowlistPath)) {
             fs.copyFileSync(allowlistPath, path.join(currentBackupDir, 'browserAllowlist.txt'));
+        }
+
+        // Copy status bar UI state (storage.json), if present
+        const statusBarStoragePath = this.getStatusBarStoragePath(true);
+        if (statusBarStoragePath && fs.existsSync(statusBarStoragePath)) {
+            fs.copyFileSync(statusBarStoragePath, path.join(currentBackupDir, 'statusbar.storage.json'));
         }
 
         // Copy snippets
@@ -1015,6 +1118,4 @@ export class SettingsManager {
             : filePath;
     }
 }
-
-
 
