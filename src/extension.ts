@@ -130,6 +130,20 @@ function logError(message: string, err?: unknown): void {
     logLine('ERROR', message, err);
 }
 
+function startProgressLog(label: string, intervalMs: number = 5000): (status?: string) => void {
+    const startedAt = Date.now();
+    const logTick = () => {
+        const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+        logInfo(`${label} still in progress... (${elapsedSeconds}s elapsed)`);
+    };
+    const timer = setInterval(logTick, intervalMs);
+    return (status: string = 'completed') => {
+        clearInterval(timer);
+        const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+        logInfo(`${label} ${status} after ${elapsedSeconds}s.`);
+    };
+}
+
 function showSyncChannels(): void {
     try {
         outputChannel?.show(true);
@@ -2140,6 +2154,7 @@ async function uploadSettings(
     isUploading = true;
     updateStatusBar('uploading');
     logInfo('Upload started.');
+    let stopUploadProgress: ((status?: string) => void) | null = startProgressLog('Upload');
     let actionStatus: 'completed' | 'failed' | 'aborted' = 'failed';
     let actionError: unknown = null;
 
@@ -2163,6 +2178,12 @@ async function uploadSettings(
             actionStatus = 'aborted';
             return false;
         }
+        const baseEntries = Object.values(baseFiles);
+        const baseBytes = baseEntries.reduce((sum, file) => {
+            const content = typeof file.content === 'string' ? file.content : '';
+            return sum + Buffer.byteLength(content);
+        }, 0);
+        logInfo(`Upload prepared ${baseEntries.length} files (${Math.round(baseBytes / 1024)} KB).`);
 
         const filesForCreate = withSyncMetadataFiles(baseFiles);
 
@@ -2178,11 +2199,15 @@ async function uploadSettings(
             gistId = newId;
         }
         await rememberLastUsedGistId(context, gistId);
+        logInfo(`Upload resolved gistId=${gistId}.`);
 
         const dateStr = new Date().toLocaleString();
         const hostname = os.hostname();
         const description = `${GIST_DESCRIPTION_PREFIX}${hostname} (${dateStr})`;
+        logInfo('Upload fetching remote gist metadata.');
         const currentGist = await gistService.getGist(gistId, token);
+        const remoteFileCount = Object.keys(currentGist?.files ?? {}).length;
+        logInfo(`Upload fetched remote gist (files=${remoteFileCount}).`);
         const syncOptions = getSyncOptions(config);
         if (syncOptions.syncStatusBarState && !baseFiles['status-bar.json']) {
             const existingStatusBar = currentGist?.files?.['status-bar.json']?.content;
@@ -2193,7 +2218,14 @@ async function uploadSettings(
         const files = withSyncMetadataFiles(baseFiles, currentGist?.files);
         const filesToDelete = getManagedGistFilesToDelete(currentGist?.files, files);
 
+        const uploadEntries = Object.values(files);
+        const uploadBytes = uploadEntries.reduce((sum, file) => {
+            const content = typeof file.content === 'string' ? file.content : '';
+            return sum + Buffer.byteLength(content);
+        }, 0);
+        logInfo(`Upload sending update (files=${uploadEntries.length}, deletes=${filesToDelete.length}, payload=${Math.round(uploadBytes / 1024)} KB).`);
         await gistService.updateGist(gistId, files, token, description, filesToDelete);
+        logInfo('Upload update completed.');
         await pruneIntentionallyRemovedExtensions(context, files['extensions.json']?.content);
         if (!silent) {
             const selection = await vscode.window.showInformationMessage(
@@ -2239,6 +2271,10 @@ async function uploadSettings(
         return false;
     } finally {
         await writeLastActionLog(context, 'upload', actionStatus, actionError);
+        if (stopUploadProgress) {
+            stopUploadProgress(actionStatus);
+            stopUploadProgress = null;
+        }
         isUploading = false;
     }
 }
