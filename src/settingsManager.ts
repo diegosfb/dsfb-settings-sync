@@ -86,11 +86,14 @@ export class SettingsManager {
 
         // Detect app folder name (default to Antigravity, fallback to Code/VSCodium if not found)
         const appName = vscode.env.appName || "";
+        const appNameLower = appName.toLowerCase();
         let folderName = 'Antigravity';
-        
-        if (appName.includes('VSCodium')) {
+
+        if (appNameLower.includes('antigravity')) {
+            folderName = 'Antigravity';
+        } else if (appNameLower.includes('vscodium')) {
             folderName = 'VSCodium';
-        } else if (appName.includes('Code')) {
+        } else if (appNameLower.includes('code')) {
             folderName = 'Code';
         }
 
@@ -448,15 +451,70 @@ export class SettingsManager {
     }
 
     /**
-     * Read status bar-related UI state from storage.json.
+     * Locate state.vscdb that contains UI state such as status bar visibility.
+     */
+    getStatusBarStateDbPath(requireExisting: boolean = true): string | null {
+        const userSettingsDir = this.getUserSettingsDir();
+        if (!userSettingsDir) {
+            return null;
+        }
+
+        const candidates = [
+            path.join(userSettingsDir, 'globalStorage', 'state.vscdb'),
+            path.join(userSettingsDir, 'state.vscdb')
+        ];
+
+        for (const candidate of candidates) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+
+        return requireExisting ? null : candidates[0];
+    }
+
+    /**
+     * Get the active status bar state source path (storage.json or state.vscdb).
+     */
+    getStatusBarStateSourcePath(requireExisting: boolean = true): { path: string; source: 'storage.json' | 'state.vscdb' } | null {
+        const storagePath = this.getStatusBarStoragePath(requireExisting);
+        if (storagePath && (!requireExisting || fs.existsSync(storagePath))) {
+            return { path: storagePath, source: 'storage.json' };
+        }
+
+        const dbPath = this.getStatusBarStateDbPath(requireExisting);
+        if (dbPath && (!requireExisting || fs.existsSync(dbPath))) {
+            return { path: dbPath, source: 'state.vscdb' };
+        }
+
+        return null;
+    }
+
+    /**
+     * Read status bar-related UI state from storage.json or state.vscdb.
      * Only keys containing "statusbar" are captured.
      */
     readStatusBarState(): string | null {
         const storagePath = this.getStatusBarStoragePath(true);
-        if (!storagePath) {
-            return null;
+        if (storagePath) {
+            const storageState = this.readStatusBarStateFromStorage(storagePath);
+            if (storageState) {
+                return storageState;
+            }
         }
 
+        const dbPath = this.getStatusBarStateDbPath(true);
+        if (dbPath) {
+            const dbState = this.readStatusBarStateFromStateDb(dbPath);
+            if (dbState) {
+                return dbState;
+            }
+        }
+
+        return null;
+    }
+
+    private readStatusBarStateFromStorage(storagePath: string): string | null {
         const content = fs.readFileSync(storagePath, 'utf8');
         const parsed = this.parseJsonc(content);
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -477,16 +535,48 @@ export class SettingsManager {
         return JSON.stringify(entries, null, 2);
     }
 
+    private readStatusBarStateFromStateDb(dbPath: string): string | null {
+        const rows = this.queryStateDb(dbPath, "SELECT key, value FROM ItemTable WHERE key LIKE '%statusbar%' COLLATE NOCASE");
+        if (!rows || rows.length === 0) {
+            return null;
+        }
+
+        const entries: Record<string, any> = {};
+        for (const row of rows) {
+            const key = String(row.key ?? '');
+            if (!key) {
+                continue;
+            }
+            const rawValue = typeof row.value === 'string' ? row.value : String(row.value ?? '');
+            entries[key] = this.safeParseJson(rawValue);
+        }
+
+        if (Object.keys(entries).length === 0) {
+            return null;
+        }
+
+        return JSON.stringify(entries, null, 2);
+    }
+
     /**
-     * Apply status bar-related UI state into storage.json (best-effort).
+     * Apply status bar-related UI state into storage.json or state.vscdb (best-effort).
      * Only keys containing "statusbar" are written.
      */
     writeStatusBarState(remoteContent: string): { applied: boolean; message?: string } {
         const storagePath = this.getStatusBarStoragePath(true);
-        if (!storagePath) {
-            return { applied: false, message: 'storage.json not found (VS Code may be using state.vscdb)' };
+        if (storagePath) {
+            return this.writeStatusBarStateToStorage(storagePath, remoteContent);
         }
 
+        const dbPath = this.getStatusBarStateDbPath(true);
+        if (dbPath) {
+            return this.writeStatusBarStateToStateDb(dbPath, remoteContent);
+        }
+
+        return { applied: false, message: 'storage.json or state.vscdb not found' };
+    }
+
+    private writeStatusBarStateToStorage(storagePath: string, remoteContent: string): { applied: boolean; message?: string } {
         const remoteObj = this.parseJsonc(remoteContent);
         if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
             return { applied: false, message: 'Invalid status bar data' };
@@ -503,21 +593,192 @@ export class SettingsManager {
             // fallback to empty object
         }
 
-        let appliedCount = 0;
-        for (const [key, value] of Object.entries(remoteObj)) {
-            if (!key.toLowerCase().includes('statusbar')) {
-                continue;
-            }
-            localObj[key] = value;
-            appliedCount++;
-        }
-
+        const appliedCount = this.applyStatusBarEntries(localObj, remoteObj);
         if (appliedCount === 0) {
             return { applied: false, message: 'No status bar keys to apply' };
         }
 
         this.writeFileIfChanged(storagePath, JSON.stringify(localObj, null, 2));
         return { applied: true };
+    }
+
+    private writeStatusBarStateToStateDb(dbPath: string, remoteContent: string): { applied: boolean; message?: string } {
+        const remoteObj = this.parseJsonc(remoteContent);
+        if (!remoteObj || typeof remoteObj !== 'object' || Array.isArray(remoteObj)) {
+            return { applied: false, message: 'Invalid status bar data' };
+        }
+
+        const entries = Object.entries(remoteObj).filter(([key]) => key.toLowerCase().includes('statusbar'));
+        if (entries.length === 0) {
+            return { applied: false, message: 'No status bar keys to apply' };
+        }
+
+        const statements: string[] = ['BEGIN;'];
+        for (const [key, value] of entries) {
+            const valueJson = JSON.stringify(value);
+            statements.push(
+                `INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('${this.escapeSqlite(key)}', '${this.escapeSqlite(valueJson)}');`
+            );
+        }
+        statements.push('COMMIT;');
+
+        const result = cp.spawnSync('sqlite3', [dbPath, statements.join('\n')], { encoding: 'utf8' });
+        if (result.error || result.status !== 0) {
+            return { applied: false, message: 'Failed to write status bar state to state.vscdb' };
+        }
+
+        return { applied: true };
+    }
+
+    private applyStatusBarEntries(target: Record<string, any>, source: Record<string, any>): number {
+        let appliedCount = 0;
+        for (const [key, value] of Object.entries(source)) {
+            if (!key.toLowerCase().includes('statusbar')) {
+                continue;
+            }
+            target[key] = value;
+            appliedCount++;
+        }
+        return appliedCount;
+    }
+
+    private safeParseJson(raw: string): any {
+        const trimmed = raw.trim();
+        if (!trimmed) {
+            return raw;
+        }
+        if (trimmed === 'true') return true;
+        if (trimmed === 'false') return false;
+        if (trimmed === 'null') return null;
+        if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+            return Number(trimmed);
+        }
+        if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('"')) {
+            try {
+                return JSON.parse(trimmed);
+            } catch {
+                return raw;
+            }
+        }
+        return raw;
+    }
+
+    private escapeSqlite(value: string): string {
+        return String(value).replace(/'/g, "''");
+    }
+
+    private queryStateDb(dbPath: string, sql: string): Array<{ key: string; value: string }> | null {
+        const jsonRows = this.queryStateDbJson(dbPath, sql);
+        if (jsonRows) {
+            return jsonRows;
+        }
+
+        const csvRows = this.queryStateDbCsv(dbPath, sql);
+        if (csvRows) {
+            return csvRows;
+        }
+
+        return null;
+    }
+
+    private queryStateDbJson(dbPath: string, sql: string): Array<{ key: string; value: string }> | null {
+        const result = cp.spawnSync('sqlite3', ['-readonly', '-json', dbPath, sql], { encoding: 'utf8' });
+        if (result.error || result.status !== 0) {
+            return null;
+        }
+        const raw = String(result.stdout || '').trim();
+        if (!raw) {
+            return [];
+        }
+        try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed as Array<{ key: string; value: string }>;
+            }
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    private queryStateDbCsv(dbPath: string, sql: string): Array<{ key: string; value: string }> | null {
+        const result = cp.spawnSync('sqlite3', ['-readonly', '-csv', '-header', dbPath, sql], { encoding: 'utf8' });
+        if (result.error || result.status !== 0) {
+            return null;
+        }
+        const raw = String(result.stdout || '').trim();
+        if (!raw) {
+            return [];
+        }
+
+        const rows = this.parseCsv(raw);
+        if (rows.length === 0) {
+            return [];
+        }
+
+        const header = rows[0].map(col => col.trim().toLowerCase());
+        const keyIndex = header.indexOf('key');
+        const valueIndex = header.indexOf('value');
+        if (keyIndex === -1 || valueIndex === -1) {
+            return null;
+        }
+
+        const data: Array<{ key: string; value: string }> = [];
+        for (const row of rows.slice(1)) {
+            const key = row[keyIndex];
+            if (!key) {
+                continue;
+            }
+            data.push({ key, value: row[valueIndex] ?? '' });
+        }
+        return data;
+    }
+
+    private parseCsv(content: string): string[][] {
+        const rows: string[][] = [];
+        let row: string[] = [];
+        let field = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < content.length; i++) {
+            const char = content[i];
+            if (inQuotes) {
+                if (char === '"') {
+                    if (content[i + 1] === '"') {
+                        field += '"';
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    field += char;
+                }
+                continue;
+            }
+
+            if (char === '"') {
+                inQuotes = true;
+            } else if (char === ',') {
+                row.push(field);
+                field = '';
+            } else if (char === '\n') {
+                row.push(field);
+                rows.push(row);
+                row = [];
+                field = '';
+            } else if (char === '\r') {
+                // ignore
+            } else {
+                field += char;
+            }
+        }
+
+        if (field.length > 0 || row.length > 0) {
+            row.push(field);
+            rows.push(row);
+        }
+
+        return rows;
     }
 
     // ?? Write Operations ?????????????????????????????????????????????
@@ -559,10 +820,15 @@ export class SettingsManager {
             fs.copyFileSync(allowlistPath, path.join(currentBackupDir, 'browserAllowlist.txt'));
         }
 
-        // Copy status bar UI state (storage.json), if present
+        // Copy status bar UI state (storage.json or state.vscdb), if present
         const statusBarStoragePath = this.getStatusBarStoragePath(true);
         if (statusBarStoragePath && fs.existsSync(statusBarStoragePath)) {
             fs.copyFileSync(statusBarStoragePath, path.join(currentBackupDir, 'statusbar.storage.json'));
+        } else {
+            const statusBarDbPath = this.getStatusBarStateDbPath(true);
+            if (statusBarDbPath && fs.existsSync(statusBarDbPath)) {
+                fs.copyFileSync(statusBarDbPath, path.join(currentBackupDir, 'statusbar.state.vscdb'));
+            }
         }
 
         // Copy snippets
@@ -1118,4 +1384,3 @@ export class SettingsManager {
             : filePath;
     }
 }
-

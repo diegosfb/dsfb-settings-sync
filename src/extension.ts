@@ -2550,14 +2550,14 @@ function setupFileWatchers(context: vscode.ExtensionContext): void {
 
     // Watch status bar UI state (storage.json) when enabled
     const syncStatusBarState = config.get<boolean>('syncStatusBarState', false);
-    const statusBarStoragePath = syncStatusBarState
-        ? settingsManager.getStatusBarStoragePath(true)
+    const statusBarStateSource = syncStatusBarState
+        ? settingsManager.getStatusBarStateSourcePath(true)
         : null;
     let statusBarWatcher: vscode.FileSystemWatcher | undefined;
-    if (statusBarStoragePath) {
+    if (statusBarStateSource) {
         const statusBarPattern = new vscode.RelativePattern(
-            vscode.Uri.file(path.dirname(statusBarStoragePath)),
-            path.basename(statusBarStoragePath)
+            vscode.Uri.file(path.dirname(statusBarStateSource.path)),
+            path.basename(statusBarStateSource.path)
         );
         statusBarWatcher = vscode.workspace.createFileSystemWatcher(statusBarPattern);
     }
